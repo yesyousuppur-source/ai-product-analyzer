@@ -226,7 +226,7 @@ export default function App() {
       showToast("✅ Signed in with Google!");
     } catch(e) {
       if (e.code === "auth/popup-closed-by-user") setError("Sign-in cancelled.");
-      else if (e.code === "auth/unauthorized-domain") setError("Domain not authorized in Firebase Console.");
+      else if (e.code === "auth/unauthorized-domain") setError("Please add this domain in Firebase Console → Authentication → Settings → Authorised domains.");
       else setError("Google sign-in failed. Try email login.");
     }
     setGoogleLoading(false);
@@ -252,12 +252,35 @@ export default function App() {
         showToast("✅ Logged in!");
       }
     } catch(e) {
-      if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential"].includes(e.code)) setError("Invalid email or password.");
-      else if (e.code === "auth/email-already-in-use") setError("Email already registered. Please login.");
-      else if (e.code === "auth/weak-password") setError("Password must be 6+ characters.");
-      else if (e.code === "auth/too-many-requests") setError("Too many attempts. Please wait 5 minutes and try again.");
-      else if (e.code === "auth/network-request-failed") setError("Network error. Check your internet connection.");
-      else setError(e.message || "Auth failed.");
+      if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential","auth/invalid-email"].includes(e.code)) {
+        setError("Invalid email or password. Try Forgot Password?");
+      } else if (e.code === "auth/email-already-in-use") {
+        setError("Email already registered. Please login.");
+      } else if (e.code === "auth/weak-password") {
+        setError("Password must be 6+ characters.");
+      } else if (e.code === "auth/too-many-requests") {
+        setError("Too many attempts. Wait 5 min or use Forgot Password.");
+      } else if (e.code === "auth/network-request-failed") {
+        setError("Network error. Check your internet.");
+      } else if (e.code === "auth/unauthorized-domain") {
+        setError("Domain not authorized. Contact support.");
+      } else {
+        setError(e.message || "Sign in failed. Try again.");
+      }
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!form.email) { setError("Please enter your email first"); return; }
+    try {
+      const auth = await getAuth();
+      const { sendPasswordResetEmail } = await import("firebase/auth");
+      await sendPasswordResetEmail(auth, form.email);
+      showToast("✅ Reset email sent! Check your inbox.");
+      setError("");
+    } catch(e) {
+      if (e.code === "auth/user-not-found") setError("No account found with this email.");
+      else setError("Failed to send reset email. Try again.");
     }
   };
 
@@ -891,7 +914,7 @@ export default function App() {
               <button className="eye" onClick={()=>setShowPass(!showPass)}>{showPass?"🙈":"👁️"}</button>
             </div>
             {error&&<p className="err">⚠️ {error}</p>}
-            {authMode==="login"&&<div className="rem"><input type="checkbox" id="rem" defaultChecked/><label htmlFor="rem">Remember me</label><span className="forgot">Forgot password?</span></div>}
+            {authMode==="login"&&<div className="rem"><input type="checkbox" id="rem" defaultChecked/><label htmlFor="rem">Remember me</label><span className="forgot" onClick={handleForgotPassword}>Forgot password?</span></div>}
             <button className="neu-btn" onClick={handleAuth}>{authMode==="login"?"Sign In →":"Create Account →"}</button>
             <p className="sw">{authMode==="login"?"Don't have an account? ":"Already have an account? "}<span className="sw-lnk" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setError("");setForm({email:"",password:"",name:""});}}>{authMode==="login"?"Sign Up Free":"Sign In"}</span></p>
           </div>
