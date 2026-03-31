@@ -72,6 +72,18 @@ export default function App() {
   const [platData, setPlatData] = useState({});
   const [platLoading, setPlatLoading] = useState(false);
   const [firstAnalysisDone, setFirstAnalysisDone] = useState(false);
+  // New feature states
+  const [activeTab, setActiveTab] = useState("analysis"); // analysis | profit | description | trending | competitor | supplier
+  const [profitForm, setProfitForm] = useState({ buyPrice: "", sellPrice: "", shipping: "", adCost: "", units: "1" });
+  const [profitResult, setProfitResult] = useState(null);
+  const [descResult, setDescResult] = useState(null);
+  const [descLoading, setDescLoading] = useState(false);
+  const [trendingData, setTrendingData] = useState(null);
+  const [trendingLoading, setTrendingLoading] = useState(false);
+  const [competitorData, setCompetitorData] = useState(null);
+  const [competitorLoading, setCompetitorLoading] = useState(false);
+  const [supplierData, setSupplierData] = useState(null);
+  const [supplierLoading, setSupplierLoading] = useState(false);
   const adRef = useRef(null);
 
   // ── INIT FIREBASE AUTH LISTENER ─────────────────────────────────────────
@@ -302,6 +314,70 @@ export default function App() {
     setPaymentStep("success"); showToast("🎉 Premium activated!");
   };
 
+  // ── PROFIT CALCULATOR ─────────────────────────────────────────────────────
+  const calcProfit = () => {
+    const buy = parseFloat(profitForm.buyPrice)||0;
+    const sell = parseFloat(profitForm.sellPrice)||0;
+    const ship = parseFloat(profitForm.shipping)||0;
+    const ads = parseFloat(profitForm.adCost)||0;
+    const units = parseInt(profitForm.units)||1;
+    const totalCost = (buy + ship + ads) * units;
+    const totalRevenue = sell * units;
+    const profit = totalRevenue - totalCost;
+    const margin = totalRevenue > 0 ? ((profit/totalRevenue)*100).toFixed(1) : 0;
+    const roi = totalCost > 0 ? ((profit/totalCost)*100).toFixed(1) : 0;
+    const breakEven = ads > 0 ? Math.ceil((buy+ship) / (sell-buy-ship)) : 0;
+    setProfitResult({ profit: profit.toFixed(0), margin, roi, totalCost: totalCost.toFixed(0), totalRevenue: totalRevenue.toFixed(0), breakEven });
+  };
+
+  // ── DESCRIPTION GENERATOR ─────────────────────────────────────────────────
+  const generateDesc = async () => {
+    if (!productForm.name) { setError("Run analysis first"); return; }
+    setDescLoading(true);
+    try {
+      const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({...productForm, mode:"description"}) });
+      const data = await res.json();
+      setDescResult(data);
+    } catch(e) { showToast("Failed to generate description"); }
+    setDescLoading(false);
+  };
+
+  // ── TRENDING PRODUCTS ─────────────────────────────────────────────────────
+  const fetchTrending = async () => {
+    setTrendingLoading(true);
+    try {
+      const cat = productForm.category || "Fashion";
+      const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:"trending", category:cat, platform:productForm.platform||"Amazon", mode:"trending" }) });
+      const data = await res.json();
+      setTrendingData(data);
+    } catch(e) { showToast("Failed to fetch trending"); }
+    setTrendingLoading(false);
+  };
+
+  // ── COMPETITOR ANALYSIS ───────────────────────────────────────────────────
+  const fetchCompetitor = async () => {
+    if (!productForm.name) { setError("Run analysis first"); return; }
+    setCompetitorLoading(true);
+    try {
+      const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({...productForm, mode:"competitor"}) });
+      const data = await res.json();
+      setCompetitorData(data);
+    } catch(e) { showToast("Failed to fetch competitor data"); }
+    setCompetitorLoading(false);
+  };
+
+  // ── SUPPLIER FINDER ───────────────────────────────────────────────────────
+  const fetchSupplier = async () => {
+    if (!productForm.name) { setError("Run analysis first"); return; }
+    setSupplierLoading(true);
+    try {
+      const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({...productForm, mode:"supplier"}) });
+      const data = await res.json();
+      setSupplierData(data);
+    } catch(e) { showToast("Failed to fetch supplier data"); }
+    setSupplierLoading(false);
+  };
+
   const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(null),3500); };
 
   const curPlan = user ? (store.get("plan_"+user?.email)||"free") : "free";
@@ -465,6 +541,59 @@ export default function App() {
     .sfeat{background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;margin:14px 0 22px;text-align:left;}
     .sfi{color:#10b981;font-size:13px;padding:4px 0;font-weight:500;}
     footer{text-align:center;padding:22px;color:#334155;font-size:12px;border-top:1px solid rgba(255,255,255,0.03);}
+    /* FEATURE TABS */
+    .ftabs{display:flex;gap:8px;margin-bottom:24px;overflow-x:auto;padding-bottom:4px;}
+    .ftabs::-webkit-scrollbar{height:3px;} .ftabs::-webkit-scrollbar-thumb{background:#1e293b;border-radius:10px;}
+    .ftab{flex-shrink:0;padding:9px 16px;background:rgba(15,23,42,0.7);border:1px solid #1e293b;border-radius:100px;color:#64748b;font-size:13px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s;white-space:nowrap;}
+    .ftab.on{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border-color:transparent;box-shadow:0 4px 14px rgba(99,102,241,0.35);}
+    .ftab:hover:not(.on){border-color:rgba(99,102,241,0.4);color:#a5b4fc;}
+    /* PROFIT CALC */
+    .pcalc{background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.15);border-radius:20px;padding:28px 24px;margin-bottom:20px;}
+    .prow{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;}
+    .pfield{display:flex;flex-direction:column;gap:6px;}
+    .pfield label{font-size:11px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;}
+    .pfield input{background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:11px 14px;color:#f8fafc;font-size:14px;font-family:'Inter',sans-serif;outline:none;}
+    .pfield input:focus{border-color:#6366f1;}
+    .presult{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:16px;animation:fadeIn 0.4s ease;}
+    .pres-card{background:rgba(2,8,23,0.6);border:1px solid #1e293b;border-radius:14px;padding:16px;text-align:center;}
+    .pres-lbl{font-size:11px;color:#64748b;margin-bottom:6px;font-weight:600;text-transform:uppercase;}
+    .pres-val{font-size:20px;font-weight:900;}
+    /* DESCRIPTION */
+    .desc-box{background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.15);border-radius:20px;padding:28px 24px;margin-bottom:20px;}
+    .desc-item{background:rgba(2,8,23,0.5);border:1px solid #1e293b;border-radius:14px;padding:18px;margin-bottom:12px;}
+    .desc-platform{display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:100px;margin-bottom:10px;}
+    .desc-title-out{font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px;}
+    .desc-body{color:#94a3b8;font-size:13px;line-height:1.7;}
+    .desc-bullets{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+    .desc-bullet{color:#a5b4fc;font-size:13px;display:flex;gap:8px;align-items:flex-start;}
+    /* TRENDING */
+    .trend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px;}
+    .trend-card{background:rgba(15,23,42,0.8);border:1px solid #1e293b;border-radius:16px;padding:18px;transition:all 0.2s;}
+    .trend-card:hover{border-color:rgba(99,102,241,0.4);transform:translateY(-2px);}
+    .trend-rank{width:28px;height:28px;background:linear-gradient(135deg,#f59e0b,#ef4444);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;margin-bottom:10px;}
+    .trend-name{font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:6px;}
+    .trend-why{font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.5;}
+    .trend-chips{display:flex;flex-wrap:wrap;gap:4px;}
+    .trend-chip{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#10b981;border-radius:100px;padding:2px 8px;font-size:11px;}
+    /* COMPETITOR */
+    .comp-card{background:rgba(15,23,42,0.8);border:1px solid #1e293b;border-radius:16px;padding:20px;margin-bottom:12px;}
+    .comp-name{font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+    .comp-price{background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);color:#f59e0b;border-radius:8px;padding:3px 10px;font-size:13px;font-weight:700;}
+    .comp-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;}
+    .comp-box{background:rgba(2,8,23,0.5);border-radius:10px;padding:12px;}
+    .comp-box-title{font-size:11px;color:#64748b;margin-bottom:6px;font-weight:700;text-transform:uppercase;}
+    .comp-point{font-size:12px;color:#94a3b8;padding:3px 0;display:flex;gap:6px;}
+    /* SUPPLIER */
+    .supp-card{background:rgba(15,23,42,0.8);border:1px solid rgba(16,185,129,0.15);border-radius:16px;padding:20px;margin-bottom:12px;}
+    .supp-name{font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:6px;}
+    .supp-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
+    .supp-chip{background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);color:#10b981;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:600;}
+    .supp-desc{color:#94a3b8;font-size:13px;line-height:1.65;}
+    .supp-link{display:inline-block;margin-top:10px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border-radius:8px;padding:6px 16px;font-size:13px;font-weight:600;text-decoration:none;}
+    .calc-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:12px;padding:13px 28px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s;}
+    .calc-btn:hover{transform:translateY(-1px);}
+    .gen-btn{width:100%;background:linear-gradient(135deg,#10b981,#059669);border:none;border-radius:12px;padding:13px 0;color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter',sans-serif;margin-top:14px;}
+    .feat-spinner{width:24px;height:24px;border:2px solid rgba(99,102,241,0.2);border-top:2px solid #6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
     @media(max-width:600px){
       .navbar{padding:12px 14px;} .icard{padding:22px 16px;} .dash{padding:28px 14px 60px;}
       .usage-pill{display:none;} .pgrid{grid-template-columns:repeat(4,1fr);gap:6px;}
@@ -744,6 +873,181 @@ export default function App() {
               </div>
             )}
           </div>
+          {/* ── FEATURE TABS ───────────────────────────────── */}
+          <div style={{marginTop:analysis?0:32}}>
+            <div className="ftabs">
+              {[
+                {id:"profit", icon:"💰", label:"Profit Calculator"},
+                {id:"description", icon:"📝", label:"Description Generator"},
+                {id:"trending", icon:"🔥", label:"Trending Products"},
+                {id:"competitor", icon:"⚔️", label:"Competitor Analysis"},
+                {id:"supplier", icon:"📦", label:"Supplier Finder"},
+              ].map(t=>(
+                <button key={t.id} className={"ftab"+(activeTab===t.id?" on":"")} onClick={()=>setActiveTab(t.id)}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* PROFIT CALCULATOR */}
+            {activeTab==="profit"&&(
+              <div className="pcalc fade-in">
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>💰 Profit Calculator</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:20}}>Calculate your real profit, margin & ROI before selling</p>
+                <div className="prow">
+                  <div className="pfield"><label>Buying Price (₹)</label><input type="number" placeholder="e.g. 150" value={profitForm.buyPrice} onChange={e=>setProfitForm({...profitForm,buyPrice:e.target.value})}/></div>
+                  <div className="pfield"><label>Selling Price (₹)</label><input type="number" placeholder="e.g. 499" value={profitForm.sellPrice} onChange={e=>setProfitForm({...profitForm,sellPrice:e.target.value})}/></div>
+                  <div className="pfield"><label>Shipping Cost (₹)</label><input type="number" placeholder="e.g. 60" value={profitForm.shipping} onChange={e=>setProfitForm({...profitForm,shipping:e.target.value})}/></div>
+                  <div className="pfield"><label>Ad Cost per Unit (₹)</label><input type="number" placeholder="e.g. 30" value={profitForm.adCost} onChange={e=>setProfitForm({...profitForm,adCost:e.target.value})}/></div>
+                  <div className="pfield"><label>Units to Sell</label><input type="number" placeholder="e.g. 10" value={profitForm.units} onChange={e=>setProfitForm({...profitForm,units:e.target.value})}/></div>
+                </div>
+                <button className="calc-btn" onClick={calcProfit}>📊 Calculate Profit</button>
+                {profitResult&&(
+                  <div className="presult">
+                    {[
+                      {l:"Net Profit",v:"₹"+profitResult.profit,c:parseFloat(profitResult.profit)>0?"#10b981":"#ef4444"},
+                      {l:"Profit Margin",v:profitResult.margin+"%",c:"#6366f1"},
+                      {l:"ROI",v:profitResult.roi+"%",c:"#f59e0b"},
+                      {l:"Total Revenue",v:"₹"+profitResult.totalRevenue,c:"#a5b4fc"},
+                      {l:"Total Cost",v:"₹"+profitResult.totalCost,c:"#94a3b8"},
+                    ].map(r=>(
+                      <div key={r.l} className="pres-card">
+                        <div className="pres-lbl">{r.l}</div>
+                        <div className="pres-val" style={{color:r.c}}>{r.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* DESCRIPTION GENERATOR */}
+            {activeTab==="description"&&(
+              <div className="desc-box fade-in">
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📝 Product Description Generator</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Auto-generate SEO-optimized listings for Amazon, Meesho, Flipkart & more</p>
+                {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
+                <button className="gen-btn" onClick={generateDesc} disabled={descLoading||!productForm.name}>
+                  {descLoading?"⏳ Generating...":"✨ Generate Descriptions"}
+                </button>
+                {descLoading&&<div className="feat-spinner"/>}
+                {descResult&&!descLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    {descResult.listings?.map((l,i)=>(
+                      <div key={i} className="desc-item">
+                        <div className="desc-platform">{l.platform}</div>
+                        <div className="desc-title-out">📌 {l.title}</div>
+                        <div className="desc-body">{l.description}</div>
+                        {l.bullets&&<div className="desc-bullets">{l.bullets.map((b,j)=><div key={j} className="desc-bullet"><span>✅</span><span>{b}</span></div>)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TRENDING PRODUCTS */}
+            {activeTab==="trending"&&(
+              <div className="desc-box fade-in">
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🔥 Trending Products</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>AI-powered trending products in your selected category</p>
+                <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+                  <select className="di sel" value={productForm.category||""} onChange={e=>setProductForm({...productForm,category:e.target.value})} style={{maxWidth:200}}>
+                    <option value="">Select Category</option>
+                    {["Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Fashion","Pet Supplies","Toys & Games","Health & Wellness","Outdoor & Sports"].map(c=><option key={c}>{c}</option>)}
+                  </select>
+                  <button className="calc-btn" onClick={fetchTrending} disabled={trendingLoading}>
+                    {trendingLoading?"⏳ Loading...":"🔥 Get Trending"}
+                  </button>
+                </div>
+                {trendingLoading&&<div className="feat-spinner"/>}
+                {trendingData&&!trendingLoading&&(
+                  <div className="trend-grid fade-in">
+                    {trendingData.products?.map((p,i)=>(
+                      <div key={i} className="trend-card">
+                        <div className="trend-rank">{i+1}</div>
+                        <div className="trend-name">{p.name}</div>
+                        <div className="trend-why">{p.why_trending}</div>
+                        <div className="trend-chips">
+                          {p.tags?.map((t,j)=><span key={j} className="trend-chip">{t}</span>)}
+                        </div>
+                        <div style={{marginTop:10,fontSize:12,color:"#f59e0b",fontWeight:600}}>💰 {p.price_range}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* COMPETITOR ANALYSIS */}
+            {activeTab==="competitor"&&(
+              <div className="desc-box fade-in">
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>⚔️ Competitor Analysis</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Analyze top competitors — pricing, strengths & weaknesses</p>
+                {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
+                <button className="calc-btn" onClick={fetchCompetitor} disabled={competitorLoading||!productForm.name}>
+                  {competitorLoading?"⏳ Analyzing...":"🔍 Analyze Competitors"}
+                </button>
+                {competitorLoading&&<div className="feat-spinner"/>}
+                {competitorData&&!competitorLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    {competitorData.competitors?.map((c,i)=>(
+                      <div key={i} className="comp-card">
+                        <div className="comp-name">
+                          <span>🏪 {c.name}</span>
+                          <span className="comp-price">{c.price}</span>
+                        </div>
+                        <div style={{fontSize:12,color:"#64748b",marginBottom:10}}>⭐ {c.rating} · {c.reviews} reviews · {c.platform}</div>
+                        <div className="comp-row">
+                          <div className="comp-box">
+                            <div className="comp-box-title" style={{color:"#10b981"}}>✅ Strengths</div>
+                            {c.strengths?.map((s,j)=><div key={j} className="comp-point"><span>+</span><span>{s}</span></div>)}
+                          </div>
+                          <div className="comp-box">
+                            <div className="comp-box-title" style={{color:"#ef4444"}}>❌ Weaknesses</div>
+                            {c.weaknesses?.map((w,j)=><div key={j} className="comp-point"><span>-</span><span>{w}</span></div>)}
+                          </div>
+                        </div>
+                        {c.opportunity&&<div style={{marginTop:10,background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:10,padding:"10px 14px",color:"#a5b4fc",fontSize:13}}>💡 Opportunity: {c.opportunity}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SUPPLIER FINDER */}
+            {activeTab==="supplier"&&(
+              <div className="desc-box fade-in">
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📦 Supplier Finder</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Find best suppliers with wholesale price, MOQ & sourcing tips</p>
+                {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
+                <button className="calc-btn" style={{background:"linear-gradient(135deg,#10b981,#059669)"}} onClick={fetchSupplier} disabled={supplierLoading||!productForm.name}>
+                  {supplierLoading?"⏳ Finding...":"🔍 Find Suppliers"}
+                </button>
+                {supplierLoading&&<div className="feat-spinner"/>}
+                {supplierData&&!supplierLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    {supplierData.suppliers?.map((s,i)=>(
+                      <div key={i} className="supp-card">
+                        <div className="supp-name">🏭 {s.name}</div>
+                        <div className="supp-row">
+                          <span className="supp-chip">💰 {s.price_range}</span>
+                          <span className="supp-chip">📦 MOQ: {s.moq}</span>
+                          <span className="supp-chip">⭐ {s.rating}</span>
+                          <span className="supp-chip">🚚 {s.delivery}</span>
+                        </div>
+                        <div className="supp-desc">{s.description}</div>
+                        {s.tip&&<div style={{marginTop:10,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:10,padding:"8px 12px",color:"#f59e0b",fontSize:12}}>💡 Tip: {s.tip}</div>}
+                        <a className="supp-link" href={s.search_url||"#"} target="_blank" rel="noreferrer">🔗 Search on {s.platform}</a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <footer>🧠 Product Analyzer · Built with AI · © YesYouPro</footer>
         </div>
       )}
