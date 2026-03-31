@@ -204,6 +204,8 @@ export default function App() {
       if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential"].includes(e.code)) setError("Invalid email or password.");
       else if (e.code === "auth/email-already-in-use") setError("Email already registered. Please login.");
       else if (e.code === "auth/weak-password") setError("Password must be 6+ characters.");
+      else if (e.code === "auth/too-many-requests") setError("Too many attempts. Please wait 5 minutes and try again.");
+      else if (e.code === "auth/network-request-failed") setError("Network error. Check your internet connection.");
       else setError(e.message || "Auth failed.");
     }
   };
@@ -620,16 +622,16 @@ export default function App() {
             <div className="div"><div className="div-line"/><div className="div-txt">OR CONTINUE WITH EMAIL</div><div className="div-line"/></div>
 
             {authMode==="signup"&&<div className="inp-wrap"><span className="inp-ico">👤</span><input className="inp" placeholder="Full Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>}
-            <div className="inp-wrap"><span className="inp-ico">✉️</span><input className="inp" placeholder="Email address" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></div>
+            <div className="inp-wrap"><span className="inp-ico">✉️</span><input className="inp" placeholder="Email address" type="email" autoComplete="off" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></div>
             <div className="inp-wrap">
               <span className="inp-ico">🔒</span>
-              <input className="inp" placeholder="Password" type={showPass?"text":"password"} value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>
+              <input className="inp" placeholder="Password" type={showPass?"text":"password"} autoComplete="new-password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>
               <button className="eye" onClick={()=>setShowPass(!showPass)}>{showPass?"🙈":"👁️"}</button>
             </div>
             {error&&<p className="err">⚠️ {error}</p>}
             {authMode==="login"&&<div className="rem"><input type="checkbox" id="rem" defaultChecked/><label htmlFor="rem">Remember me</label><span className="forgot">Forgot password?</span></div>}
             <button className="neu-btn" onClick={handleAuth}>{authMode==="login"?"Sign In →":"Create Account →"}</button>
-            <p className="sw">{authMode==="login"?"Don't have an account? ":"Already have an account? "}<span className="sw-lnk" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setError("");}}>{authMode==="login"?"Sign Up Free":"Sign In"}</span></p>
+            <p className="sw">{authMode==="login"?"Don't have an account? ":"Already have an account? "}<span className="sw-lnk" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setError("");setForm({email:"",password:"",name:""});}}>{authMode==="login"?"Sign Up Free":"Sign In"}</span></p>
           </div>
         </div>
       )}
