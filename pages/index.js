@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 
-// Firebase lazy init - only on client side
-const firebaseConfig = {
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const FREE_DAILY_LIMIT = 3;
+const PREMIUM_TOTAL_LIMIT = 30;
+const PREMIUM_DAYS = 7;
+
+const FB_CONFIG = {
   apiKey: "AIzaSyDww7gi4QRRNm4t3PFQ9ny8a2WLV-V9OFU",
   authDomain: "mood2meet-85866.firebaseapp.com",
   projectId: "mood2meet-85866",
@@ -9,23 +13,6 @@ const firebaseConfig = {
   messagingSenderId: "455406578867",
   appId: "1:455406578867:web:fc5a2b6a00af996bc114c6"
 };
-
-let auth = null;
-let googleProvider = null;
-
-const getFirebaseAuth = async () => {
-  if (auth) return auth;
-  const { initializeApp, getApps } = await import("firebase/app");
-  const { getAuth, GoogleAuthProvider } = await import("firebase/auth");
-  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-  auth = getAuth(app);
-  googleProvider = new GoogleAuthProvider();
-  return auth;
-};
-
-const FREE_DAILY_LIMIT = 3;
-const PREMIUM_TOTAL_LIMIT = 30;
-const PREMIUM_DAYS = 7;
 
 const ADS = [
   { headline: "Scale Your Business Fast", sub: "Find winning products 10x faster", cta: "Try Now Free", color: "#f59e0b" },
@@ -45,9 +32,20 @@ const PLATFORMS = [
 ];
 
 const store = {
-  get: (key) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } },
-  set: (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} },
+  get: (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
+
+// ─── FIREBASE HELPER (client only) ───────────────────────────────────────────
+let _auth = null;
+async function getAuth() {
+  if (_auth) return _auth;
+  const { initializeApp, getApps } = await import("firebase/app");
+  const { getAuth: fa } = await import("firebase/auth");
+  const app = getApps().length ? getApps()[0] : initializeApp(FB_CONFIG);
+  _auth = fa(app);
+  return _auth;
+}
 
 export default function App() {
   const [screen, setScreen] = useState("loading");
@@ -70,34 +68,46 @@ export default function App() {
   const [paymentStep, setPaymentStep] = useState("form");
   const [usageInfo, setUsageInfo] = useState(null);
   const [toast, setToast] = useState(null);
-  const [selectedPlatform, setSelectedPlatform] = useState(null);
-  const [platformData, setPlatformData] = useState({});
-  const [platformLoading, setPlatformLoading] = useState(false);
-  const adIntervalRef = useRef(null);
+  const [selPlatform, setSelPlatform] = useState(null);
+  const [platData, setPlatData] = useState({});
+  const [platLoading, setPlatLoading] = useState(false);
+  const adRef = useRef(null);
 
-  // Listen to Firebase Auth state
+  // ── INIT FIREBASE AUTH LISTENER ─────────────────────────────────────────
   useEffect(() => {
     const accounts = store.get("apa_saved_accounts") || [];
     setSavedAccounts(accounts);
 
-    getFirebaseAuth().then((authInstance) => {
-    const { onAuthStateChanged } = require("firebase/auth");
-    const unsubscribe = onAuthStateChanged(authInstance, (firebaseUser) => {
-      if (firebaseUser) {
-        const u = {
-          email: firebaseUser.email,
-          name: firebaseUser.displayName || firebaseUser.email.split("@")[0],
-          plan: store.get("apa_plan_" + firebaseUser.email) || "free",
-          photoURL: firebaseUser.photoURL || null,
-        };
-        setUser(u);
-        setUsageInfo(getUsageInfo(u));
-        setScreen("dashboard");
-      } else {
+    // Firebase only runs in browser
+    if (typeof window === "undefined") return;
+
+    let unsub = null;
+    (async () => {
+      try {
+        const auth = await getAuth();
+        const { onAuthStateChanged } = await import("firebase/auth");
+        unsub = onAuthStateChanged(auth, (fbUser) => {
+          if (fbUser) {
+            const u = {
+              email: fbUser.email,
+              name: fbUser.displayName || fbUser.email.split("@")[0],
+              plan: store.get("plan_" + fbUser.email) || "free",
+              photo: fbUser.photoURL || null,
+            };
+            setUser(u);
+            setUsageInfo(calcUsage(u));
+            setScreen("dashboard");
+          } else {
+            setScreen("auth");
+          }
+        });
+      } catch (e) {
+        console.error("Firebase init error:", e);
         setScreen("auth");
       }
-    });
-    });
+    })();
+
+    return () => { if (unsub) unsub(); };
   }, []);
 
   useEffect(() => {
@@ -107,194 +117,182 @@ export default function App() {
     }
   }, [loading]);
 
-  const getTodayKey = () => new Date().toISOString().split("T")[0];
+  // ── USAGE ────────────────────────────────────────────────────────────────
+  const todayKey = () => new Date().toISOString().split("T")[0];
 
-  const getUsageInfo = (u) => {
-    const plan = store.get("apa_plan_" + u?.email) || u?.plan || "free";
+  const calcUsage = (u) => {
+    const plan = store.get("plan_"+u?.email) || "free";
     if (plan === "premium") {
-      const pd = store.get("apa_premium_" + u?.email);
+      const pd = store.get("prem_"+u?.email);
       if (!pd) return { plan:"free", remaining:FREE_DAILY_LIMIT, total:FREE_DAILY_LIMIT };
-      const expired = new Date() > new Date(pd.expiry);
-      if (expired) return { plan:"free", remaining:FREE_DAILY_LIMIT, total:FREE_DAILY_LIMIT, expired:true };
+      if (new Date() > new Date(pd.expiry)) return { plan:"free", remaining:FREE_DAILY_LIMIT, total:FREE_DAILY_LIMIT, expired:true };
       const used = pd.used || 0;
-      return { plan, remaining:Math.max(0, PREMIUM_TOTAL_LIMIT-used), total:PREMIUM_TOTAL_LIMIT, used, expiry:pd.expiry };
+      return { plan, remaining:Math.max(0,PREMIUM_TOTAL_LIMIT-used), total:PREMIUM_TOTAL_LIMIT, used, expiry:pd.expiry };
     }
-    const used = store.get("apa_usage_"+(u?.email)+"_"+getTodayKey()) || 0;
-    return { plan, remaining:Math.max(0, FREE_DAILY_LIMIT-used), total:FREE_DAILY_LIMIT, used };
+    const used = store.get("use_"+u?.email+"_"+todayKey()) || 0;
+    return { plan, remaining:Math.max(0,FREE_DAILY_LIMIT-used), total:FREE_DAILY_LIMIT, used };
   };
 
-  const incrementUsage = (u) => {
-    const plan = store.get("apa_plan_"+u?.email) || "free";
+  const addUsage = (u) => {
+    const plan = store.get("plan_"+u?.email) || "free";
     if (plan === "premium") {
-      const pd = store.get("apa_premium_"+u?.email);
-      if (pd) store.set("apa_premium_"+u?.email, {...pd, used:(pd.used||0)+1});
+      const pd = store.get("prem_"+u?.email);
+      if (pd) store.set("prem_"+u?.email, {...pd, used:(pd.used||0)+1});
     } else {
-      const key = "apa_usage_"+u?.email+"_"+getTodayKey();
-      store.set(key, (store.get(key)||0)+1);
+      const k = "use_"+u?.email+"_"+todayKey();
+      store.set(k, (store.get(k)||0)+1);
     }
   };
 
   const checkLimit = (u) => {
-    const info = getUsageInfo(u);
-    if (info.expired) return { allowed:false, reason:"Premium expired! Please recharge." };
-    if (info.remaining <= 0) return { allowed:false, reason:info.plan==="free"?"Daily limit reached (3/day). Upgrade to Premium!":"Premium limit reached. Please recharge." };
-    return { allowed:true };
+    const info = calcUsage(u);
+    if (info.expired) return { ok:false, msg:"Premium expired! Recharge." };
+    if (info.remaining <= 0) return { ok:false, msg:info.plan==="free"?"Daily limit reached. Upgrade!":"Premium limit reached." };
+    return { ok:true };
   };
 
-  const saveAccount = (email, name, password, photoURL) => {
-    const accounts = store.get("apa_saved_accounts") || [];
-    const idx = accounts.findIndex(a => a.email === email);
-    const acc = { email, name, password: password||"", photoURL: photoURL||null };
-    if (idx >= 0) accounts[idx] = acc; else accounts.push(acc);
-    store.set("apa_saved_accounts", accounts);
-    setSavedAccounts([...accounts]);
+  // ── SAVE ACCOUNT ─────────────────────────────────────────────────────────
+  const saveAcc = (email, name, password, photo) => {
+    const list = store.get("apa_saved_accounts") || [];
+    const i = list.findIndex(a => a.email === email);
+    const acc = { email, name, password:password||"", photo:photo||null };
+    if (i >= 0) list[i] = acc; else list.push(acc);
+    store.set("apa_saved_accounts", list);
+    setSavedAccounts([...list]);
   };
 
-  // Google Sign In
-  const handleGoogleLogin = async () => {
-    setGoogleLoading(true);
-    setError("");
+  // ── GOOGLE LOGIN ─────────────────────────────────────────────────────────
+  const handleGoogle = async () => {
+    setGoogleLoading(true); setError("");
     try {
-      const authInstance = await getFirebaseAuth();
-      const { signInWithPopup } = await import("firebase/auth");
-      const result = await signInWithPopup(authInstance, googleProvider);
-      const fbUser = result.user;
-      saveAccount(fbUser.email, fbUser.displayName, "", fbUser.photoURL);
+      const auth = await getAuth();
+      const { signInWithPopup, GoogleAuthProvider } = await import("firebase/auth");
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      saveAcc(result.user.email, result.user.displayName, "", result.user.photoURL);
       showToast("✅ Signed in with Google!");
-    } catch (e) {
-      if (e.code === "auth/popup-closed-by-user") {
-        setError("Google sign-in was cancelled.");
-      } else if (e.code === "auth/unauthorized-domain") {
-        setError("Domain not authorized. Add your domain in Firebase Console → Authentication → Settings → Authorized domains.");
-      } else {
-        setError("Google sign-in failed: " + e.message);
-      }
+    } catch(e) {
+      if (e.code === "auth/popup-closed-by-user") setError("Sign-in cancelled.");
+      else if (e.code === "auth/unauthorized-domain") setError("Domain not authorized in Firebase Console.");
+      else setError("Google sign-in failed. Try email login.");
     }
     setGoogleLoading(false);
   };
 
-  // Email/Password Auth
+  // ── EMAIL AUTH ───────────────────────────────────────────────────────────
   const handleAuth = async () => {
     if (!form.email || !form.password) { setError("Please fill all fields"); return; }
-    if (authMode === "signup" && !form.name) { setError("Name is required"); return; }
+    if (authMode === "signup" && !form.name) { setError("Name required"); return; }
     setError("");
     try {
+      const auth = await getAuth();
       if (authMode === "signup") {
-        const authInstance = await getFirebaseAuth();
         const { createUserWithEmailAndPassword, updateProfile } = await import("firebase/auth");
-        const result = await createUserWithEmailAndPassword(authInstance, form.email, form.password);
-        await updateProfile(result.user, { displayName: form.name });
-        saveAccount(form.email, form.name, form.password, null);
+        const r = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        await updateProfile(r.user, { displayName: form.name });
+        saveAcc(form.email, form.name, form.password, null);
         showToast("✅ Account created!");
       } else {
-        const authInstance2 = await getFirebaseAuth();
         const { signInWithEmailAndPassword } = await import("firebase/auth");
-        await signInWithEmailAndPassword(authInstance2, form.email, form.password);
-        saveAccount(form.email, form.email.split("@")[0], form.password, null);
+        await signInWithEmailAndPassword(auth, form.email, form.password);
+        saveAcc(form.email, form.email.split("@")[0], form.password, null);
         showToast("✅ Logged in!");
       }
-    } catch (e) {
-      if (e.code === "auth/user-not-found" || e.code === "auth/wrong-password" || e.code === "auth/invalid-credential") {
-        setError("Invalid email or password.");
-      } else if (e.code === "auth/email-already-in-use") {
-        setError("Email already registered. Please login.");
-      } else if (e.code === "auth/weak-password") {
-        setError("Password must be at least 6 characters.");
-      } else {
-        setError(e.message);
-      }
+    } catch(e) {
+      if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential"].includes(e.code)) setError("Invalid email or password.");
+      else if (e.code === "auth/email-already-in-use") setError("Email already registered. Please login.");
+      else if (e.code === "auth/weak-password") setError("Password must be 6+ characters.");
+      else setError(e.message || "Auth failed.");
     }
   };
 
-  const quickLogin = async (account) => {
-    if (!account.password) {
-      setError("This account used Google login. Please use 'Continue with Google'.");
-      return;
-    }
+  const quickLogin = async (acc) => {
+    if (!acc.password) { setError("Use Google button for this account."); return; }
     setError("");
     try {
-      const authInst = await getFirebaseAuth();
-      const { signInWithEmailAndPassword: signIn } = await import("firebase/auth");
-      await signIn(authInst, account.email, account.password);
-    } catch(e) {
-      setError("Quick login failed. Please login manually.");
-    }
+      const auth = await getAuth();
+      const { signInWithEmailAndPassword } = await import("firebase/auth");
+      await signInWithEmailAndPassword(auth, acc.email, acc.password);
+    } catch { setError("Quick login failed. Login manually."); }
   };
 
   const handleLogout = async () => {
-    const authInst = await getFirebaseAuth();
-    const { signOut } = await import("firebase/auth");
-    await signOut(authInst);
+    try {
+      const auth = await getAuth();
+      const { signOut } = await import("firebase/auth");
+      await signOut(auth);
+    } catch {}
     setUser(null); setAnalysis(null); setUsageInfo(null);
   };
 
-  const showInterstitialAd = () => new Promise((resolve) => {
+  // ── AD ───────────────────────────────────────────────────────────────────
+  const showAd2 = () => new Promise(resolve => {
     setAdIdx(Math.floor(Math.random()*ADS.length));
     setAdTimer(5); setShowAd(true);
     let t = 5;
-    adIntervalRef.current = setInterval(() => { t--; setAdTimer(t); if (t<=0) clearInterval(adIntervalRef.current); }, 1000);
+    adRef.current = setInterval(() => { t--; setAdTimer(t); if (t<=0) clearInterval(adRef.current); }, 1000);
     window._adResolve = resolve;
   });
 
   const closeAd = () => {
     if (adTimer > 0) return;
-    clearInterval(adIntervalRef.current);
-    setShowAd(false);
+    clearInterval(adRef.current); setShowAd(false);
     if (window._adResolve) { window._adResolve(); window._adResolve = null; }
   };
 
+  // ── ANALYSIS ─────────────────────────────────────────────────────────────
   const runAnalysis = async () => {
-    if (!productForm.name || !productForm.category || !productForm.platform) { setError("Please fill all product fields"); return; }
+    if (!productForm.name || !productForm.category || !productForm.platform) { setError("Fill all fields"); return; }
     setError("");
-    const check = checkLimit(user);
-    if (!check.allowed) { setError(check.reason); return; }
-    const currentPlan = store.get("apa_plan_"+user?.email) || "free";
-    if (currentPlan === "free") await showInterstitialAd();
-    setLoading(true); setAnalysis(null); setSelectedPlatform(null); setPlatformData({});
+    const lim = checkLimit(user);
+    if (!lim.ok) { setError(lim.msg); return; }
+    const plan = store.get("plan_"+user?.email) || "free";
+    if (plan === "free") await showAd2();
+    setLoading(true); setAnalysis(null); setSelPlatform(null); setPlatData({});
     try {
       const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(productForm) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error||"Failed");
-      incrementUsage(user); setUsageInfo(getUsageInfo(user)); setAnalysis(data);
+      addUsage(user); setUsageInfo(calcUsage(user)); setAnalysis(data);
       showToast("✅ Analysis complete!");
     } catch(e) { setError("Analysis failed: "+e.message); }
     setLoading(false);
   };
 
-  const fetchPlatformData = async (platformId) => {
-    const currentPlan = store.get("apa_plan_"+user?.email) || "free";
-    if (currentPlan !== "premium") { setShowPremium(true); return; }
-    setSelectedPlatform(platformId);
-    if (platformData[platformId]) return;
-    setPlatformLoading(true);
+  const fetchPlatform = async (pid) => {
+    const plan = store.get("plan_"+user?.email) || "free";
+    if (plan !== "premium") { setShowPremium(true); return; }
+    setSelPlatform(pid);
+    if (platData[pid]) return;
+    setPlatLoading(true);
     try {
-      const platform = PLATFORMS.find(p=>p.id===platformId);
-      const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:productForm.name, category:productForm.category, platform:platform.name, mode:"ads_platform", platformId }) });
+      const pl = PLATFORMS.find(p=>p.id===pid);
+      const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:productForm.name, category:productForm.category, platform:pl.name, mode:"ads_platform" }) });
       const data = await res.json();
-      setPlatformData(prev=>({...prev,[platformId]:data}));
-    } catch(e) { showToast("Failed to fetch platform data"); }
-    setPlatformLoading(false);
+      setPlatData(prev=>({...prev,[pid]:data}));
+    } catch { showToast("Failed"); }
+    setPlatLoading(false);
   };
 
   const activatePremium = async () => {
     setPaymentStep("processing");
     await new Promise(r=>setTimeout(r,2000));
     const expiry = new Date(Date.now()+PREMIUM_DAYS*86400000).toISOString();
-    store.set("apa_premium_"+user?.email, { expiry, used:0 });
-    store.set("apa_plan_"+user?.email, "premium");
-    const updated = {...user, plan:"premium"};
-    setUser(updated); setUsageInfo(getUsageInfo(updated));
+    store.set("prem_"+user?.email, { expiry, used:0 });
+    store.set("plan_"+user?.email, "premium");
+    const u = {...user, plan:"premium"};
+    setUser(u); setUsageInfo(calcUsage(u));
     setPaymentStep("success"); showToast("🎉 Premium activated!");
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(null),3500); };
 
-  const currentPlan = user ? (store.get("apa_plan_"+user?.email) || "free") : "free";
-  const adTimerWidth = ((5-adTimer)/5)*100;
+  const curPlan = user ? (store.get("plan_"+user?.email)||"free") : "free";
+  const adW = ((5-adTimer)/5)*100;
   const STEPS = ["Product data received","Analyzing market trends","Generating AI insights","Creating viral hooks"];
 
   const css = `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     *{margin:0;padding:0;box-sizing:border-box;}
     body{background:#e8ecf1;font-family:'Inter',sans-serif;color:#1a1a2e;}
     @keyframes spin{to{transform:rotate(360deg);}}
@@ -305,169 +303,155 @@ export default function App() {
     .scale-in{animation:scaleIn 0.3s ease;}
     .spinner{width:36px;height:36px;border:3px solid rgba(99,102,241,0.2);border-top:3px solid #6366f1;border-radius:50%;animation:spin 0.8s linear infinite;}
     .toast{position:fixed;top:24px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:12px 28px;border-radius:100px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 8px 32px rgba(16,185,129,0.4);animation:fadeIn 0.3s ease;white-space:nowrap;}
-
-    /* AUTH - NEUMORPHIC */
     .neu-page{min-height:100vh;background:#e8ecf1;display:flex;align-items:center;justify-content:center;padding:20px;}
-    .neu-card{background:#e8ecf1;border-radius:30px;padding:40px 32px;width:100%;max-width:420px;box-shadow:8px 8px 20px #c8cdd5,-8px -8px 20px #ffffff;}
-    .neu-avatar{width:88px;height:88px;background:#e8ecf1;border-radius:50%;margin:0 auto 22px;display:flex;align-items:center;justify-content:center;box-shadow:6px 6px 14px #c8cdd5,-6px -6px 14px #ffffff;overflow:hidden;}
-    .neu-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+    .neu-card{background:#e8ecf1;border-radius:30px;padding:40px 32px;width:100%;max-width:420px;box-shadow:8px 8px 20px #c8cdd5,-8px -8px 20px #fff;}
+    .neu-avt{width:88px;height:88px;background:#e8ecf1;border-radius:50%;margin:0 auto 22px;display:flex;align-items:center;justify-content:center;box-shadow:6px 6px 14px #c8cdd5,-6px -6px 14px #fff;}
     .neu-title{font-size:24px;font-weight:800;text-align:center;color:#1a1a2e;margin-bottom:6px;}
     .neu-sub{color:#8b8fa8;font-size:14px;text-align:center;margin-bottom:26px;}
-    .auth-tabs-neu{display:flex;background:#e8ecf1;border-radius:14px;padding:4px;margin-bottom:20px;box-shadow:inset 4px 4px 10px #c8cdd5,inset -4px -4px 10px #ffffff;}
-    .auth-tab-neu{flex:1;padding:10px 0;background:none;border:none;color:#8b8fa8;font-size:14px;font-weight:600;cursor:pointer;border-radius:11px;transition:all 0.25s;font-family:'Inter',sans-serif;}
-    .auth-tab-neu.active{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:4px 4px 10px rgba(99,102,241,0.4);}
-    .neu-inp-wrap{position:relative;margin-bottom:14px;}
-    .neu-inp-icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#8b8fa8;font-size:16px;pointer-events:none;}
-    .neu-inp{width:100%;background:#e8ecf1;border:none;border-radius:14px;padding:14px 16px 14px 44px;color:#1a1a2e;font-size:14px;font-family:'Inter',sans-serif;outline:none;box-shadow:inset 4px 4px 10px #c8cdd5,inset -4px -4px 10px #ffffff;transition:all 0.2s;}
-    .neu-inp:focus{box-shadow:inset 5px 5px 12px #bec3cb,inset -5px -5px 12px #f2f6fc;}
-    .neu-inp::placeholder{color:#adb5bd;}
-    .neu-eye{position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#8b8fa8;font-size:18px;padding:4px;}
-    .err-text{color:#e53e3e;font-size:12px;margin:-6px 0 10px 4px;font-weight:500;}
-    .neu-btn{width:100%;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:14px;padding:15px 0;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:'Inter',sans-serif;box-shadow:4px 4px 12px rgba(99,102,241,0.5),-2px -2px 8px rgba(255,255,255,0.3);transition:all 0.2s;margin-bottom:14px;}
+    .tabs{display:flex;background:#e8ecf1;border-radius:14px;padding:4px;margin-bottom:20px;box-shadow:inset 4px 4px 10px #c8cdd5,inset -4px -4px 10px #fff;}
+    .tab{flex:1;padding:10px 0;background:none;border:none;color:#8b8fa8;font-size:14px;font-weight:600;cursor:pointer;border-radius:11px;font-family:'Inter',sans-serif;transition:all 0.25s;}
+    .tab.on{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:4px 4px 10px rgba(99,102,241,0.4);}
+    .inp-wrap{position:relative;margin-bottom:14px;}
+    .inp-ico{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none;}
+    .inp{width:100%;background:#e8ecf1;border:none;border-radius:14px;padding:14px 16px 14px 44px;color:#1a1a2e;font-size:14px;font-family:'Inter',sans-serif;outline:none;box-shadow:inset 4px 4px 10px #c8cdd5,inset -4px -4px 10px #fff;}
+    .inp:focus{box-shadow:inset 5px 5px 12px #bec3cb,inset -5px -5px 12px #f2f6fc;}
+    .inp::placeholder{color:#adb5bd;}
+    .eye{position:absolute;right:14px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;}
+    .err{color:#e53e3e;font-size:12px;margin:-6px 0 10px 4px;}
+    .neu-btn{width:100%;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:14px;padding:15px 0;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:'Inter',sans-serif;box-shadow:4px 4px 12px rgba(99,102,241,0.5);transition:all 0.2s;margin-bottom:14px;}
     .neu-btn:hover{transform:translateY(-1px);}
-    .neu-google-btn{width:100%;background:#e8ecf1;border:none;border-radius:14px;padding:13px 0;color:#4a5568;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;font-family:'Inter',sans-serif;box-shadow:4px 4px 10px #c8cdd5,-4px -4px 10px #ffffff;transition:all 0.2s;margin-bottom:14px;}
-    .neu-google-btn:hover{box-shadow:6px 6px 14px #c0c5cd,-6px -6px 14px #ffffff;transform:translateY(-1px);}
-    .neu-google-btn:disabled{opacity:0.6;cursor:not-allowed;}
-    .divider{display:flex;align-items:center;gap:12px;margin:14px 0;}
-    .divider-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,#c8cdd5,transparent);}
-    .divider-txt{color:#adb5bd;font-size:11px;font-weight:600;white-space:nowrap;letter-spacing:0.5px;}
-    .remember{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
-    .remember input{width:18px;height:18px;accent-color:#6366f1;cursor:pointer;}
-    .remember label{color:#8b8fa8;font-size:13px;cursor:pointer;flex:1;}
+    .g-btn{width:100%;background:#e8ecf1;border:none;border-radius:14px;padding:13px 0;color:#4a5568;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;font-family:'Inter',sans-serif;box-shadow:4px 4px 10px #c8cdd5,-4px -4px 10px #fff;transition:all 0.2s;margin-bottom:14px;}
+    .g-btn:hover{transform:translateY(-1px);}
+    .g-btn:disabled{opacity:0.6;cursor:not-allowed;}
+    .div{display:flex;align-items:center;gap:12px;margin:14px 0;}
+    .div-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,#c8cdd5,transparent);}
+    .div-txt{color:#adb5bd;font-size:11px;font-weight:600;white-space:nowrap;}
+    .rem{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+    .rem input{width:18px;height:18px;accent-color:#6366f1;}
+    .rem label{color:#8b8fa8;font-size:13px;flex:1;}
     .forgot{color:#6366f1;font-size:13px;font-weight:600;cursor:pointer;}
-    .auth-switch{color:#8b8fa8;font-size:13px;text-align:center;margin-top:14px;}
-    .auth-lnk{color:#6366f1;cursor:pointer;font-weight:700;}
-
-    /* SAVED ACCOUNTS */
-    .saved-wrap{margin-bottom:18px;}
+    .sw{color:#8b8fa8;font-size:13px;text-align:center;margin-top:14px;}
+    .sw-lnk{color:#6366f1;cursor:pointer;font-weight:700;}
+    .saved{margin-bottom:18px;}
     .saved-lbl{color:#8b8fa8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;}
-    .saved-acc{display:flex;align-items:center;gap:12px;background:#e8ecf1;border:none;border-radius:16px;padding:11px 14px;margin-bottom:8px;cursor:pointer;width:100%;text-align:left;box-shadow:4px 4px 10px #c8cdd5,-4px -4px 10px #ffffff;transition:all 0.2s;}
-    .saved-acc:hover{box-shadow:6px 6px 14px #c0c5cd,-6px -6px 14px #ffffff;transform:translateX(2px);}
+    .saved-item{display:flex;align-items:center;gap:12px;background:#e8ecf1;border:none;border-radius:16px;padding:11px 14px;margin-bottom:8px;cursor:pointer;width:100%;text-align:left;box-shadow:4px 4px 10px #c8cdd5,-4px -4px 10px #fff;transition:all 0.2s;}
+    .saved-item:hover{transform:translateX(2px);}
     .saved-avt{width:38px;height:38px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:#fff;flex-shrink:0;overflow:hidden;}
     .saved-avt img{width:100%;height:100%;object-fit:cover;}
     .saved-info{flex:1;min-width:0;}
     .saved-name{font-size:13px;font-weight:700;color:#1a1a2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .saved-email{font-size:11px;color:#8b8fa8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .saved-pass{font-size:11px;color:#adb5bd;letter-spacing:2px;margin-top:2px;}
-    .saved-arrow{color:#6366f1;font-size:18px;font-weight:700;flex-shrink:0;}
-
-    /* DASHBOARD */
+    .saved-mail{font-size:11px;color:#8b8fa8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .saved-dots{font-size:11px;color:#adb5bd;letter-spacing:2px;}
     .dashboard{min-height:100vh;background:#020817;color:#f8fafc;}
     .navbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid rgba(255,255,255,0.04);background:rgba(2,8,23,0.92);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;}
     .nav-logo{font-weight:900;font-size:18px;background:linear-gradient(135deg,#6366f1,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
     .usage-pill{background:rgba(15,23,42,0.9);border:1px solid #1e293b;border-radius:100px;padding:7px 16px;font-size:13px;display:flex;align-items:center;gap:8px;}
-    .pill-div{color:#334155;}
     .nav-right{display:flex;align-items:center;gap:8px;}
-    .upgrade-btn{background:linear-gradient(135deg,#f59e0b,#ef4444);border:none;border-radius:100px;padding:8px 18px;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;}
-    .avatar{width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff;overflow:hidden;}
-    .avatar img{width:100%;height:100%;object-fit:cover;}
-    .logout-btn{background:none;border:1px solid #1e293b;border-radius:8px;padding:7px 12px;color:#475569;font-size:12px;cursor:pointer;font-family:'Inter',sans-serif;}
-    .dash-content{max-width:880px;margin:0 auto;padding:44px 20px 100px;}
+    .upg-btn{background:linear-gradient(135deg,#f59e0b,#ef4444);border:none;border-radius:100px;padding:8px 18px;color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;}
+    .avt{width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff;overflow:hidden;}
+    .avt img{width:100%;height:100%;object-fit:cover;}
+    .exit-btn{background:none;border:1px solid #1e293b;border-radius:8px;padding:7px 12px;color:#475569;font-size:12px;cursor:pointer;font-family:'Inter',sans-serif;}
+    .dash{max-width:880px;margin:0 auto;padding:44px 20px 100px;}
     .hero{text-align:center;margin-bottom:48px;}
-    .hero-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:100px;padding:6px 18px;font-size:12px;color:#a5b4fc;font-weight:700;margin-bottom:18px;}
-    .hero-title{font-weight:900;font-size:clamp(26px,5vw,50px);line-height:1.1;margin-bottom:14px;letter-spacing:-1px;}
-    .grad-text{background:linear-gradient(135deg,#6366f1,#a855f7,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-    .hero-sub{color:#64748b;font-size:15px;max-width:520px;margin:0 auto;line-height:1.65;}
-    .input-card{background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.15);border-radius:24px;padding:32px 28px;margin-bottom:40px;}
-    .card-title{font-weight:800;font-size:18px;margin-bottom:22px;color:#f8fafc;}
-    .input-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:18px;}
-    .inp-group{display:flex;flex-direction:column;}
-    .inp-label{font-size:11px;color:#64748b;margin-bottom:7px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;}
-    .inp{width:100%;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:13px 16px;color:#f8fafc;font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:all 0.2s;}
-    .inp:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,0.15);}
+    .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:100px;padding:6px 18px;font-size:12px;color:#a5b4fc;font-weight:700;margin-bottom:18px;}
+    .h1{font-weight:900;font-size:clamp(26px,5vw,50px);line-height:1.1;margin-bottom:14px;letter-spacing:-1px;}
+    .grad{background:linear-gradient(135deg,#6366f1,#a855f7,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+    .h-sub{color:#64748b;font-size:15px;max-width:520px;margin:0 auto;line-height:1.65;}
+    .icard{background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.15);border-radius:24px;padding:32px 28px;margin-bottom:40px;}
+    .ctitle{font-weight:800;font-size:18px;margin-bottom:22px;color:#f8fafc;}
+    .igrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:18px;}
+    .igrp{display:flex;flex-direction:column;}
+    .ilbl{font-size:11px;color:#64748b;margin-bottom:7px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;}
+    .di{width:100%;background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:13px 16px;color:#f8fafc;font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:all 0.2s;}
+    .di:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,0.15);}
     .sel{cursor:pointer;}
-    .error-banner{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:12px 16px;color:#ef4444;font-size:13px;margin-bottom:16px;}
-    .upg-link{color:#f59e0b;cursor:pointer;font-weight:700;}
-    .analyze-btn{width:100%;background:linear-gradient(135deg,#6366f1,#8b5cf6,#a855f7);border:none;border-radius:16px;padding:17px 0;color:#fff;font-weight:800;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 8px 32px rgba(99,102,241,0.4);transition:all 0.2s;font-family:'Inter',sans-serif;}
-    .analyze-btn:hover{transform:translateY(-2px);}
-    .ad-note{font-size:12px;opacity:0.65;font-weight:400;}
-    .free-note{font-size:12px;color:#475569;text-align:center;margin-top:12px;}
-    .loading-overlay{position:fixed;inset:0;background:rgba(2,8,23,0.97);display:flex;align-items:center;justify-content:center;z-index:7000;}
-    .loading-card{background:rgba(15,23,42,0.95);border:1px solid rgba(99,102,241,0.25);border-radius:24px;padding:48px 40px;text-align:center;max-width:380px;width:90%;}
-    .loading-brain{font-size:60px;margin-bottom:20px;animation:pulse 1.2s ease infinite;}
-    .loading-title{font-weight:900;font-size:22px;margin-bottom:8px;color:#f8fafc;}
-    .loading-sub{color:#64748b;font-size:14px;margin-bottom:28px;}
-    .loading-steps{display:flex;flex-direction:column;gap:8px;text-align:left;}
-    .ls{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:10px;border:1px solid transparent;font-size:13px;color:#475569;transition:all 0.4s;}
-    .ls.done{color:#10b981;border-color:rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);}
-    .ls.active{color:#a5b4fc;border-color:rgba(99,102,241,0.3);background:rgba(99,102,241,0.08);}
-    .results-title{font-weight:900;font-size:22px;margin-bottom:24px;color:#f8fafc;}
-    .metrics-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:18px;}
-    .metric-card{background:rgba(15,23,42,0.85);border:1px solid #1e293b;border-radius:18px;padding:20px 16px;position:relative;overflow:hidden;}
-    .metric-card::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#6366f1,#a855f7);}
-    .metric-label{font-size:11px;color:#64748b;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;}
-    .metric-val{font-weight:900;font-size:20px;}
-    .two-col{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:12px;}
-    .glass-card{background:rgba(15,23,42,0.75);border:1px solid #1e293b;border-radius:18px;padding:22px 20px;margin-bottom:12px;}
-    .gc-title{font-weight:800;font-size:15px;margin-bottom:13px;color:#e2e8f0;}
-    .gc-text{color:#94a3b8;line-height:1.75;font-size:14px;}
-    .hook-item{display:flex;align-items:flex-start;gap:12px;color:#cbd5e1;font-size:14px;margin-bottom:12px;line-height:1.55;}
-    .hook-num{min-width:28px;height:28px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;flex-shrink:0;}
-    .kw-grid{display:flex;flex-wrap:wrap;gap:7px;}
-    .kw-chip{background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.22);color:#a5b4fc;border-radius:100px;padding:5px 13px;font-size:13px;font-weight:500;}
-    .platforms-section{background:rgba(15,23,42,0.8);border:1px solid rgba(245,158,11,0.2);border-radius:22px;padding:28px 22px;margin-bottom:12px;}
-    .ps-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
-    .ps-title{font-weight:800;font-size:16px;color:#e2e8f0;}
-    .ps-badge{background:linear-gradient(135deg,#f59e0b,#ef4444);border-radius:100px;padding:3px 12px;font-size:11px;font-weight:800;color:#fff;}
+    .ebanner{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:12px 16px;color:#ef4444;font-size:13px;margin-bottom:16px;}
+    .ulink{color:#f59e0b;cursor:pointer;font-weight:700;}
+    .abtn{width:100%;background:linear-gradient(135deg,#6366f1,#8b5cf6,#a855f7);border:none;border-radius:16px;padding:17px 0;color:#fff;font-weight:800;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 8px 32px rgba(99,102,241,0.4);transition:all 0.2s;font-family:'Inter',sans-serif;}
+    .abtn:hover{transform:translateY(-2px);}
+    .anote{font-size:12px;opacity:0.65;font-weight:400;}
+    .fnote{font-size:12px;color:#475569;text-align:center;margin-top:12px;}
+    .loverlay{position:fixed;inset:0;background:rgba(2,8,23,0.97);display:flex;align-items:center;justify-content:center;z-index:7000;}
+    .lcard{background:rgba(15,23,42,0.95);border:1px solid rgba(99,102,241,0.25);border-radius:24px;padding:48px 40px;text-align:center;max-width:380px;width:90%;}
+    .lbrain{font-size:60px;margin-bottom:20px;animation:pulse 1.2s ease infinite;}
+    .lt{font-weight:900;font-size:22px;margin-bottom:8px;color:#f8fafc;}
+    .ls-sub{color:#64748b;font-size:14px;margin-bottom:28px;}
+    .lsteps{display:flex;flex-direction:column;gap:8px;text-align:left;}
+    .lstep{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:10px;border:1px solid transparent;font-size:13px;color:#475569;transition:all 0.4s;}
+    .lstep.done{color:#10b981;border-color:rgba(16,185,129,0.25);background:rgba(16,185,129,0.06);}
+    .lstep.act{color:#a5b4fc;border-color:rgba(99,102,241,0.3);background:rgba(99,102,241,0.08);}
+    .rtitle{font-weight:900;font-size:22px;margin-bottom:24px;color:#f8fafc;}
+    .mrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:18px;}
+    .mcard{background:rgba(15,23,42,0.85);border:1px solid #1e293b;border-radius:18px;padding:20px 16px;position:relative;overflow:hidden;}
+    .mcard::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#6366f1,#a855f7);}
+    .mlbl{font-size:11px;color:#64748b;margin-bottom:8px;font-weight:600;text-transform:uppercase;}
+    .mval{font-weight:900;font-size:20px;}
+    .tcol{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:12px;}
+    .gcard{background:rgba(15,23,42,0.75);border:1px solid #1e293b;border-radius:18px;padding:22px 20px;margin-bottom:12px;}
+    .gct{font-weight:800;font-size:15px;margin-bottom:13px;color:#e2e8f0;}
+    .gctx{color:#94a3b8;line-height:1.75;font-size:14px;}
+    .hitem{display:flex;align-items:flex-start;gap:12px;color:#cbd5e1;font-size:14px;margin-bottom:12px;}
+    .hnum{min-width:28px;height:28px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;flex-shrink:0;}
+    .kwg{display:flex;flex-wrap:wrap;gap:7px;}
+    .kwc{background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.22);color:#a5b4fc;border-radius:100px;padding:5px 13px;font-size:13px;}
+    .psec{background:rgba(15,23,42,0.8);border:1px solid rgba(245,158,11,0.2);border-radius:22px;padding:28px 22px;margin-bottom:12px;}
+    .psh{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+    .pst{font-weight:800;font-size:16px;color:#e2e8f0;}
+    .psb-badge{background:linear-gradient(135deg,#f59e0b,#ef4444);border-radius:100px;padding:3px 12px;font-size:11px;font-weight:800;color:#fff;}
     .ps-sub{color:#64748b;font-size:13px;margin-bottom:20px;line-height:1.5;}
-    .platforms-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
-    .platform-btn{background:rgba(2,8,23,0.7);border:1.5px solid #1e293b;border-radius:14px;padding:14px 8px 12px;text-align:center;cursor:pointer;transition:all 0.2s;position:relative;}
-    .platform-btn:hover{border-color:rgba(99,102,241,0.5);transform:translateY(-2px);}
-    .platform-btn.active{border-color:#6366f1;background:rgba(99,102,241,0.1);}
-    .platform-logo{width:30px;height:30px;margin:0 auto 7px;}
-    .platform-name{font-size:10px;font-weight:700;color:#94a3b8;}
-    .lock-badge{position:absolute;top:5px;right:6px;font-size:11px;}
-    .platform-detail{background:rgba(2,8,23,0.7);border:1px solid rgba(99,102,241,0.2);border-radius:16px;padding:22px 18px;margin-top:14px;animation:fadeIn 0.4s ease;}
-    .pd-block{margin-bottom:18px;}
-    .pd-title{font-size:11px;font-weight:800;color:#a5b4fc;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.8px;}
-    .pd-text{color:#94a3b8;font-size:13px;line-height:1.75;}
-    .pd-steps{display:flex;flex-direction:column;gap:6px;}
-    .pd-step{display:flex;align-items:flex-start;gap:10px;background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.12);border-radius:9px;padding:8px 12px;color:#cbd5e1;font-size:13px;line-height:1.5;}
-    .pd-step-num{min-width:20px;height:20px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0;}
-    .pd-chips{display:flex;flex-wrap:wrap;gap:6px;}
-    .pd-chip{background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:500;}
-    .lock-box{text-align:center;padding:20px 16px;}
-    .lock-emoji{font-size:44px;margin-bottom:12px;}
-    .lock-title{font-weight:800;font-size:17px;margin-bottom:6px;color:#f8fafc;}
-    .lock-sub{color:#64748b;font-size:13px;margin-bottom:18px;line-height:1.6;}
-    .unlock-btn{background:linear-gradient(135deg,#f59e0b,#ef4444);border:none;border-radius:12px;padding:13px 28px;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:'Inter',sans-serif;}
+    .pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+    .pbtn{background:rgba(2,8,23,0.7);border:1.5px solid #1e293b;border-radius:14px;padding:14px 8px 12px;text-align:center;cursor:pointer;transition:all 0.2s;position:relative;}
+    .pbtn:hover{border-color:rgba(99,102,241,0.5);transform:translateY(-2px);}
+    .pbtn.on{border-color:#6366f1;background:rgba(99,102,241,0.1);}
+    .plogo{width:30px;height:30px;margin:0 auto 7px;}
+    .pname{font-size:10px;font-weight:700;color:#94a3b8;}
+    .plk{position:absolute;top:5px;right:6px;font-size:11px;}
+    .pdet{background:rgba(2,8,23,0.7);border:1px solid rgba(99,102,241,0.2);border-radius:16px;padding:22px 18px;margin-top:14px;animation:fadeIn 0.4s ease;}
+    .pdb{margin-bottom:18px;}
+    .pdt{font-size:11px;font-weight:800;color:#a5b4fc;margin-bottom:8px;text-transform:uppercase;}
+    .pdtx{color:#94a3b8;font-size:13px;line-height:1.75;}
+    .pdsteps{display:flex;flex-direction:column;gap:6px;}
+    .pdstep{display:flex;align-items:flex-start;gap:10px;background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.12);border-radius:9px;padding:8px 12px;color:#cbd5e1;font-size:13px;}
+    .pdsn{min-width:20px;height:20px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;flex-shrink:0;}
+    .pdch{display:flex;flex-wrap:wrap;gap:6px;}
+    .pdchip{background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#a5b4fc;border-radius:8px;padding:4px 10px;font-size:12px;}
+    .lkbox{text-align:center;padding:20px;}
+    .lkemoji{font-size:44px;margin-bottom:12px;}
+    .lktitle{font-weight:800;font-size:17px;margin-bottom:6px;color:#f8fafc;}
+    .lksub{color:#64748b;font-size:13px;margin-bottom:18px;line-height:1.6;}
+    .unlkbtn{background:linear-gradient(135deg,#f59e0b,#ef4444);border:none;border-radius:12px;padding:13px 28px;color:#fff;font-weight:800;font-size:15px;cursor:pointer;font-family:'Inter',sans-serif;}
     .ad-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.96);display:flex;align-items:center;justify-content:center;z-index:9000;}
     .ad-box{background:linear-gradient(180deg,#0f172a,#020817);border:1px solid #1e293b;border-radius:24px;padding:40px 32px;max-width:400px;width:92%;text-align:center;position:relative;animation:scaleIn 0.3s ease;}
-    .ad-badge-top{position:absolute;top:-13px;left:50%;transform:translateX(-50%);padding:5px 18px;border-radius:100px;font-size:10px;font-weight:800;color:#fff;letter-spacing:1.5px;}
-    .ad-headline{font-weight:900;font-size:22px;margin:14px 0 8px;color:#f8fafc;}
-    .ad-sub{color:#94a3b8;margin-bottom:22px;font-size:14px;line-height:1.5;}
+    .ad-top{position:absolute;top:-13px;left:50%;transform:translateX(-50%);padding:5px 18px;border-radius:100px;font-size:10px;font-weight:800;color:#fff;letter-spacing:1.5px;}
+    .ad-h{font-weight:900;font-size:22px;margin:14px 0 8px;color:#f8fafc;}
+    .ad-s{color:#94a3b8;margin-bottom:22px;font-size:14px;}
     .ad-cta{border:none;border-radius:100px;padding:12px 30px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter',sans-serif;}
     .ad-prog{height:3px;background:#1e293b;border-radius:100px;margin:18px 0 0;overflow:hidden;}
-    .ad-prog-fill{height:100%;background:linear-gradient(90deg,#6366f1,#a855f7);transition:width 1s linear;}
-    .ad-close-btn{display:block;margin:12px auto 0;background:none;border:1px solid #2d3748;border-radius:100px;padding:8px 22px;color:#94a3b8;cursor:pointer;font-size:13px;font-family:'Inter',sans-serif;}
-    .ad-close-btn.disabled{opacity:0.3;cursor:not-allowed;}
-    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:8000;backdrop-filter:blur(8px);}
-    .premium-modal{background:linear-gradient(180deg,#0f172a,#020817);border:1px solid rgba(245,158,11,0.25);border-radius:28px;padding:40px 32px;max-width:460px;width:92%;text-align:center;animation:scaleIn 0.3s ease;}
-    .prem-badge{display:inline-block;background:linear-gradient(135deg,#f59e0b,#ef4444);border-radius:100px;padding:6px 20px;font-size:12px;font-weight:800;color:#fff;margin-bottom:14px;letter-spacing:1px;}
-    .prem-title{font-weight:900;font-size:26px;margin-bottom:6px;color:#f8fafc;}
-    .prem-price{font-weight:900;font-size:42px;background:linear-gradient(135deg,#f59e0b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px;}
-    .prem-price span{font-size:15px;-webkit-text-fill-color:#94a3b8;color:#94a3b8;}
-    .prem-highlight{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:12px;padding:12px 16px;margin-bottom:20px;color:#10b981;font-size:13px;font-weight:600;line-height:1.6;}
-    .prem-features{display:flex;flex-direction:column;gap:8px;margin-bottom:24px;text-align:left;}
-    .prem-feature{color:#cbd5e1;font-size:14px;padding:9px 14px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(255,255,255,0.05);}
-    .prem-btn{width:100%;background:linear-gradient(135deg,#f59e0b,#ef4444);border:none;border-radius:14px;padding:15px 0;color:#fff;font-weight:800;font-size:15px;cursor:pointer;margin-bottom:10px;font-family:'Inter',sans-serif;}
-    .modal-cancel{background:none;border:none;color:#475569;font-family:'Inter',sans-serif;font-size:14px;cursor:pointer;padding:8px 0;width:100%;}
-    .pay-box{background:#020817;border:1px solid #1e293b;border-radius:14px;padding:16px 18px;margin-bottom:14px;text-align:left;}
-    .pay-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);color:#94a3b8;font-size:14px;}
-    .pay-row:last-child{border-bottom:none;}
-    .pay-note{color:#475569;font-size:12px;margin-bottom:14px;line-height:1.6;}
-    .success-features{background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;margin:14px 0 22px;text-align:left;}
-    .sf-item{color:#10b981;font-size:13px;padding:4px 0;font-weight:500;}
-    .footer{text-align:center;padding:22px 20px;color:#334155;font-size:12px;border-top:1px solid rgba(255,255,255,0.03);}
+    .ad-fill{height:100%;background:linear-gradient(90deg,#6366f1,#a855f7);transition:width 1s linear;}
+    .ad-close{display:block;margin:12px auto 0;background:none;border:1px solid #2d3748;border-radius:100px;padding:8px 22px;color:#94a3b8;cursor:pointer;font-size:13px;font-family:'Inter',sans-serif;}
+    .ad-close.off{opacity:0.3;cursor:not-allowed;}
+    .modal-ov{position:fixed;inset:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:8000;backdrop-filter:blur(8px);}
+    .pmodal{background:linear-gradient(180deg,#0f172a,#020817);border:1px solid rgba(245,158,11,0.25);border-radius:28px;padding:40px 32px;max-width:460px;width:92%;text-align:center;animation:scaleIn 0.3s ease;}
+    .pbadge{display:inline-block;background:linear-gradient(135deg,#f59e0b,#ef4444);border-radius:100px;padding:6px 20px;font-size:12px;font-weight:800;color:#fff;margin-bottom:14px;}
+    .ptitle{font-weight:900;font-size:26px;margin-bottom:6px;color:#f8fafc;}
+    .pprice{font-weight:900;font-size:42px;background:linear-gradient(135deg,#f59e0b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px;}
+    .pprice span{font-size:15px;-webkit-text-fill-color:#94a3b8;}
+    .phigh{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:12px;padding:12px 16px;margin-bottom:20px;color:#10b981;font-size:13px;font-weight:600;line-height:1.6;}
+    .pflist{display:flex;flex-direction:column;gap:8px;margin-bottom:24px;text-align:left;}
+    .pfi{color:#cbd5e1;font-size:14px;padding:9px 14px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid rgba(255,255,255,0.05);}
+    .pbtn2{width:100%;background:linear-gradient(135deg,#f59e0b,#ef4444);border:none;border-radius:14px;padding:15px 0;color:#fff;font-weight:800;font-size:15px;cursor:pointer;margin-bottom:10px;font-family:'Inter',sans-serif;}
+    .mcancel{background:none;border:none;color:#475569;font-family:'Inter',sans-serif;font-size:14px;cursor:pointer;padding:8px 0;width:100%;}
+    .paybox{background:#020817;border:1px solid #1e293b;border-radius:14px;padding:16px 18px;margin-bottom:14px;text-align:left;}
+    .payrow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);color:#94a3b8;font-size:14px;}
+    .payrow:last-child{border-bottom:none;}
+    .paynote{color:#475569;font-size:12px;margin-bottom:14px;line-height:1.6;}
+    .sfeat{background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;margin:14px 0 22px;text-align:left;}
+    .sfi{color:#10b981;font-size:13px;padding:4px 0;font-weight:500;}
+    footer{text-align:center;padding:22px;color:#334155;font-size:12px;border-top:1px solid rgba(255,255,255,0.03);}
     @media(max-width:600px){
-      .navbar{padding:12px 14px;}
-      .input-card{padding:22px 16px;}
-      .dash-content{padding:28px 14px 60px;}
-      .usage-pill{display:none;}
-      .platforms-grid{grid-template-columns:repeat(4,1fr);gap:6px;}
-      .platform-btn{padding:10px 4px 8px;}
-      .platform-name{font-size:9px;}
-      .neu-card{padding:32px 22px;}
+      .navbar{padding:12px 14px;} .icard{padding:22px 16px;} .dash{padding:28px 14px 60px;}
+      .usage-pill{display:none;} .pgrid{grid-template-columns:repeat(4,1fr);gap:6px;}
+      .pbtn{padding:10px 4px 8px;} .pname{font-size:9px;} .neu-card{padding:32px 22px;}
     }
   `;
 
@@ -486,16 +470,16 @@ export default function App() {
       <style>{css}</style>
       {toast && <div className="toast">{toast}</div>}
 
-      {/* LOADING OVERLAY */}
+      {/* LOADING */}
       {loading && (
-        <div className="loading-overlay">
-          <div className="loading-card scale-in">
-            <div className="loading-brain">🧠</div>
-            <h2 className="loading-title">Analyzing Product</h2>
-            <p className="loading-sub">YYP AI is processing your request...</p>
-            <div className="loading-steps">
+        <div className="loverlay">
+          <div className="lcard scale-in">
+            <div className="lbrain">🧠</div>
+            <h2 className="lt">Analyzing Product</h2>
+            <p className="ls-sub">YYP AI is processing...</p>
+            <div className="lsteps">
               {STEPS.map((s,i)=>(
-                <div key={i} className={"ls"+(loadingStep>i?" done":loadingStep===i?" active":"")}>
+                <div key={i} className={"lstep"+(loadingStep>i?" done":loadingStep===i?" act":"")}>
                   <span>{loadingStep>i?"✅":loadingStep===i?"⚙️":"○"}</span><span>{s}</span>
                 </div>
               ))}
@@ -508,13 +492,13 @@ export default function App() {
       {showAd && (
         <div className="ad-overlay">
           <div className="ad-box">
-            <div className="ad-badge-top" style={{background:ADS[adIdx].color}}>ADVERTISEMENT</div>
+            <div className="ad-top" style={{background:ADS[adIdx].color}}>ADVERTISEMENT</div>
             <div style={{fontSize:50,marginTop:10}}>📢</div>
-            <h2 className="ad-headline">{ADS[adIdx].headline}</h2>
-            <p className="ad-sub">{ADS[adIdx].sub}</p>
+            <h2 className="ad-h">{ADS[adIdx].headline}</h2>
+            <p className="ad-s">{ADS[adIdx].sub}</p>
             <button className="ad-cta" style={{background:ADS[adIdx].color}}>{ADS[adIdx].cta}</button>
-            <div className="ad-prog"><div className="ad-prog-fill" style={{width:adTimerWidth+"%"}}/></div>
-            <button onClick={closeAd} className={"ad-close-btn"+(adTimer>0?" disabled":"")}>
+            <div className="ad-prog"><div className="ad-fill" style={{width:adW+"%"}}/></div>
+            <button onClick={closeAd} className={"ad-close"+(adTimer>0?" off":"")}>
               {adTimer>0?"⏳ Skip in "+adTimer+"s":"✕ Close & Continue"}
             </button>
           </div>
@@ -523,61 +507,56 @@ export default function App() {
 
       {/* PREMIUM MODAL */}
       {showPremium && (
-        <div className="modal-overlay" onClick={()=>{if(paymentStep==="form"){setShowPremium(false);setShowPayment(false);setPaymentStep("form");}}}>
-          <div className="premium-modal" onClick={e=>e.stopPropagation()}>
+        <div className="modal-ov" onClick={()=>{if(paymentStep==="form"){setShowPremium(false);setShowPayment(false);setPaymentStep("form");}}}>
+          <div className="pmodal" onClick={e=>e.stopPropagation()}>
             {!showPayment ? (
               <>
-                <div className="prem-badge">💎 PREMIUM PLAN</div>
-                <h2 className="prem-title">Unlock Everything</h2>
-                <div className="prem-price">₹149 <span>/ 7 days</span></div>
-                <div className="prem-highlight">🎉 After purchase:<br/>✅ <b>Zero ads</b> — ad-free experience<br/>✅ <b>30 analyses</b> in 7 days<br/>✅ <b>All 8 platforms</b> unlocked</div>
-                <div className="prem-features">
-                  {["📺 Ads on 8+ platforms","🎬 Video Publishing Guides","🔑 Platform keywords & scripts","💰 Budget & ROI tips","🚫 No ads ever"].map(f=>(
-                    <div key={f} className="prem-feature">{f}</div>
-                  ))}
+                <div className="pbadge">💎 PREMIUM</div>
+                <h2 className="ptitle">Unlock Everything</h2>
+                <div className="pprice">₹149 <span>/ 7 days</span></div>
+                <div className="phigh">🎉 After purchase:<br/>✅ <b>Zero ads</b><br/>✅ <b>30 analyses</b> in 7 days<br/>✅ <b>All 8 platforms</b> unlocked</div>
+                <div className="pflist">
+                  {["📺 Ads on 8+ platforms","🎬 Video Publishing Guides","🔑 Keywords & scripts","💰 Budget tips","🚫 No ads ever"].map(f=><div key={f} className="pfi">{f}</div>)}
                 </div>
-                <button className="prem-btn" onClick={()=>setShowPayment(true)}>🔓 Unlock Premium — ₹149</button>
-                <button className="modal-cancel" onClick={()=>setShowPremium(false)}>Maybe later</button>
+                <button className="pbtn2" onClick={()=>setShowPayment(true)}>🔓 Unlock — ₹149</button>
+                <button className="mcancel" onClick={()=>setShowPremium(false)}>Maybe later</button>
               </>
             ) : paymentStep==="form" ? (
               <>
-                <h2 className="prem-title">Complete Payment</h2>
-                <div className="pay-box">
-                  <div className="pay-row"><span>Plan</span><span>Premium 7-day</span></div>
-                  <div className="pay-row"><span>Amount</span><span style={{color:"#f59e0b",fontWeight:700}}>₹149</span></div>
-                  <div className="pay-row"><span>Analyses</span><span style={{color:"#10b981"}}>30 total</span></div>
-                  <div className="pay-row"><span>Ads</span><span style={{color:"#10b981"}}>Zero</span></div>
+                <h2 className="ptitle">Complete Payment</h2>
+                <div className="paybox">
+                  <div className="payrow"><span>Plan</span><span>Premium 7-day</span></div>
+                  <div className="payrow"><span>Amount</span><span style={{color:"#f59e0b",fontWeight:700}}>₹149</span></div>
+                  <div className="payrow"><span>Analyses</span><span style={{color:"#10b981"}}>30</span></div>
+                  <div className="payrow"><span>Ads</span><span style={{color:"#10b981"}}>Zero</span></div>
                 </div>
-                <p className="pay-note">⚠️ Add Razorpay for real payments. Demo simulates success.</p>
-                <button className="prem-btn" onClick={activatePremium}>💳 Pay ₹149 (Demo)</button>
-                <button className="modal-cancel" onClick={()=>setShowPayment(false)}>← Back</button>
+                <p className="paynote">⚠️ Add Razorpay for real payments. Demo simulates success.</p>
+                <button className="pbtn2" onClick={activatePremium}>💳 Pay ₹149 (Demo)</button>
+                <button className="mcancel" onClick={()=>setShowPayment(false)}>← Back</button>
               </>
             ) : paymentStep==="processing" ? (
-              <div style={{textAlign:"center",padding:48}}>
-                <div className="spinner" style={{margin:"0 auto"}}/>
-                <p style={{color:"#94a3b8",marginTop:20}}>Processing...</p>
-              </div>
+              <div style={{textAlign:"center",padding:48}}><div className="spinner" style={{margin:"0 auto"}}/><p style={{color:"#94a3b8",marginTop:20}}>Processing...</p></div>
             ) : (
               <div style={{textAlign:"center",padding:"20px 0"}}>
                 <div style={{fontSize:64,marginBottom:12}}>🎉</div>
-                <h2 className="prem-title">Premium Activated!</h2>
-                <div className="success-features">
-                  <div className="sf-item">✅ Zero ads</div>
-                  <div className="sf-item">✅ 30 analyses (7 days)</div>
-                  <div className="sf-item">✅ All 8 platforms unlocked</div>
+                <h2 className="ptitle">Premium Activated!</h2>
+                <div className="sfeat">
+                  <div className="sfi">✅ Zero ads</div>
+                  <div className="sfi">✅ 30 analyses (7 days)</div>
+                  <div className="sfi">✅ All 8 platforms unlocked</div>
                 </div>
-                <button className="prem-btn" onClick={()=>{setShowPremium(false);setShowPayment(false);setPaymentStep("form");}}>🚀 Start Analyzing →</button>
+                <button className="pbtn2" onClick={()=>{setShowPremium(false);setShowPayment(false);setPaymentStep("form");}}>🚀 Start Analyzing →</button>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* AUTH - NEUMORPHIC */}
+      {/* AUTH */}
       {screen==="auth" && (
         <div className="neu-page">
           <div className="neu-card">
-            <div className="neu-avatar">
+            <div className="neu-avt">
               <svg viewBox="0 0 24 24" fill="none" stroke="#8b8fa8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="44" height="44">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
               </svg>
@@ -585,40 +564,34 @@ export default function App() {
             <h1 className="neu-title">{authMode==="login"?"Welcome back":"Create account"}</h1>
             <p className="neu-sub">{authMode==="login"?"Sign in to continue":"Join YesYouPro for free"}</p>
 
-            {/* Saved accounts */}
             {authMode==="login" && savedAccounts.length>0 && (
-              <div className="saved-wrap">
+              <div className="saved">
                 <div className="saved-lbl">Quick Login</div>
-                {savedAccounts.map(acc=>(
-                  <button key={acc.email} className="saved-acc" onClick={()=>quickLogin(acc)}>
-                    <div className="saved-avt">
-                      {acc.photoURL ? <img src={acc.photoURL} alt=""/> : acc.name?.[0]?.toUpperCase()||"U"}
-                    </div>
+                {savedAccounts.map(a=>(
+                  <button key={a.email} className="saved-item" onClick={()=>quickLogin(a)}>
+                    <div className="saved-avt">{a.photo?<img src={a.photo} alt=""/>:a.name?.[0]?.toUpperCase()||"U"}</div>
                     <div className="saved-info">
-                      <div className="saved-name">{acc.name}</div>
-                      <div className="saved-email">{acc.email}</div>
-                      <div className="saved-pass">{acc.password ? "●".repeat(Math.min(acc.password.length,8)) : "Google Account"}</div>
+                      <div className="saved-name">{a.name}</div>
+                      <div className="saved-mail">{a.email}</div>
+                      <div className="saved-dots">{a.password?"●".repeat(Math.min(a.password.length,8)):"Google Account"}</div>
                     </div>
-                    <div className="saved-arrow">→</div>
+                    <div style={{color:"#6366f1",fontSize:20,fontWeight:700}}>→</div>
                   </button>
                 ))}
-                <div className="divider"><div className="divider-line"/><div className="divider-txt">OR SIGN IN MANUALLY</div><div className="divider-line"/></div>
+                <div className="div"><div className="div-line"/><div className="div-txt">OR SIGN IN MANUALLY</div><div className="div-line"/></div>
               </div>
             )}
 
-            <div className="auth-tabs-neu">
+            <div className="tabs">
               {["login","signup"].map(m=>(
-                <button key={m} className={"auth-tab-neu"+(authMode===m?" active":"")} onClick={()=>{setAuthMode(m);setError("");}}>
+                <button key={m} className={"tab"+(authMode===m?" on":"")} onClick={()=>{setAuthMode(m);setError("");}}>
                   {m==="login"?"Login":"Sign Up"}
                 </button>
               ))}
             </div>
 
-            {/* Google Button - REAL */}
-            <button className="neu-google-btn" onClick={handleGoogleLogin} disabled={googleLoading}>
-              {googleLoading ? (
-                <div className="spinner" style={{width:18,height:18,border:"2px solid rgba(99,102,241,0.2)",borderTop:"2px solid #6366f1"}}/>
-              ) : (
+            <button className="g-btn" onClick={handleGoogle} disabled={googleLoading}>
+              {googleLoading?<div className="spinner" style={{width:18,height:18,border:"2px solid rgba(99,102,241,0.2)",borderTop:"2px solid #6366f1"}}/>:(
                 <svg width="18" height="18" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                   <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -626,178 +599,120 @@ export default function App() {
                   <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
                 </svg>
               )}
-              {googleLoading ? "Signing in..." : "Continue with Google"}
+              {googleLoading?"Signing in...":"Continue with Google"}
             </button>
 
-            <div className="divider"><div className="divider-line"/><div className="divider-txt">OR CONTINUE WITH EMAIL</div><div className="divider-line"/></div>
+            <div className="div"><div className="div-line"/><div className="div-txt">OR CONTINUE WITH EMAIL</div><div className="div-line"/></div>
 
-            {authMode==="signup" && (
-              <div className="neu-inp-wrap">
-                <span className="neu-inp-icon">👤</span>
-                <input className="neu-inp" placeholder="Full Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
-              </div>
-            )}
-            <div className="neu-inp-wrap">
-              <span className="neu-inp-icon">✉️</span>
-              <input className="neu-inp" placeholder="Email address" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>
+            {authMode==="signup"&&<div className="inp-wrap"><span className="inp-ico">👤</span><input className="inp" placeholder="Full Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>}
+            <div className="inp-wrap"><span className="inp-ico">✉️</span><input className="inp" placeholder="Email address" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></div>
+            <div className="inp-wrap">
+              <span className="inp-ico">🔒</span>
+              <input className="inp" placeholder="Password" type={showPass?"text":"password"} value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>
+              <button className="eye" onClick={()=>setShowPass(!showPass)}>{showPass?"🙈":"👁️"}</button>
             </div>
-            <div className="neu-inp-wrap">
-              <span className="neu-inp-icon">🔒</span>
-              <input className="neu-inp" placeholder="Password" type={showPass?"text":"password"} value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>
-              <button className="neu-eye" onClick={()=>setShowPass(!showPass)}>{showPass?"🙈":"👁️"}</button>
-            </div>
-
-            {error && <p className="err-text">⚠️ {error}</p>}
-
-            {authMode==="login" && (
-              <div className="remember">
-                <input type="checkbox" id="rem" defaultChecked/>
-                <label htmlFor="rem">Remember me</label>
-                <span className="forgot">Forgot password?</span>
-              </div>
-            )}
-
-            <button className="neu-btn" onClick={handleAuth}>
-              {authMode==="login"?"Sign In →":"Create Account →"}
-            </button>
-            <p className="auth-switch">
-              {authMode==="login"?"Don't have an account? ":"Already have an account? "}
-              <span className="auth-lnk" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setError("");}}>
-                {authMode==="login"?"Sign Up Free":"Sign In"}
-              </span>
-            </p>
+            {error&&<p className="err">⚠️ {error}</p>}
+            {authMode==="login"&&<div className="rem"><input type="checkbox" id="rem" defaultChecked/><label htmlFor="rem">Remember me</label><span className="forgot">Forgot password?</span></div>}
+            <button className="neu-btn" onClick={handleAuth}>{authMode==="login"?"Sign In →":"Create Account →"}</button>
+            <p className="sw">{authMode==="login"?"Don't have an account? ":"Already have an account? "}<span className="sw-lnk" onClick={()=>{setAuthMode(authMode==="login"?"signup":"login");setError("");}}>{authMode==="login"?"Sign Up Free":"Sign In"}</span></p>
           </div>
         </div>
       )}
 
       {/* DASHBOARD */}
-      {screen==="dashboard" && (
+      {screen==="dashboard"&&(
         <div className="dashboard">
           <nav className="navbar">
             <div className="nav-logo">🧠 YesYouPro</div>
-            {usageInfo && (
-              <div className="usage-pill">
-                <span style={{color:currentPlan==="premium"?"#f59e0b":"#94a3b8",fontWeight:700}}>{currentPlan==="premium"?"💎 Premium":"🆓 Free"}</span>
-                <span className="pill-div">|</span>
-                <span style={{color:usageInfo.remaining>0?"#10b981":"#ef4444",fontWeight:700}}>{usageInfo.remaining} left</span>
-              </div>
-            )}
+            {usageInfo&&<div className="usage-pill">
+              <span style={{color:curPlan==="premium"?"#f59e0b":"#94a3b8",fontWeight:700}}>{curPlan==="premium"?"💎 Premium":"🆓 Free"}</span>
+              <span style={{color:"#334155"}}>|</span>
+              <span style={{color:usageInfo.remaining>0?"#10b981":"#ef4444",fontWeight:700}}>{usageInfo.remaining} left</span>
+            </div>}
             <div className="nav-right">
-              {currentPlan==="free" && <button className="upgrade-btn" onClick={()=>setShowPremium(true)}>💎 Upgrade</button>}
-              <div className="avatar">
-                {user?.photoURL ? <img src={user.photoURL} alt=""/> : user?.name?.[0]?.toUpperCase()||"U"}
-              </div>
-              <button className="logout-btn" onClick={handleLogout}>Exit</button>
+              {curPlan==="free"&&<button className="upg-btn" onClick={()=>setShowPremium(true)}>💎 Upgrade</button>}
+              <div className="avt">{user?.photo?<img src={user.photo} alt=""/>:user?.name?.[0]?.toUpperCase()||"U"}</div>
+              <button className="exit-btn" onClick={handleLogout}>Exit</button>
             </div>
           </nav>
 
-          <div className="dash-content">
+          <div className="dash">
             <div className="hero">
-              <div className="hero-badge">✨ YYP AI — Product Intelligence</div>
-              <h1 className="hero-title">Product Intelligence<br/><span className="grad-text">Powered by YesYouPro</span></h1>
-              <p className="hero-sub">Enter any product and get deep market analysis, viral hooks, keywords and complete platform ad strategies.</p>
+              <div className="badge">✨ YYP AI — Product Intelligence</div>
+              <h1 className="h1">Product Intelligence<br/><span className="grad">Powered by YesYouPro</span></h1>
+              <p className="h-sub">Enter any product and get deep market analysis, viral hooks, keywords and complete platform strategies.</p>
             </div>
 
-            <div className="input-card">
-              <h3 className="card-title">🎯 Analyze a Product</h3>
-              <div className="input-grid">
-                <div className="inp-group">
-                  <label className="inp-label">Product Name *</label>
-                  <input className="inp" placeholder="e.g. Portable Blender" value={productForm.name} onChange={e=>setProductForm({...productForm,name:e.target.value})}/>
-                </div>
-                <div className="inp-group">
-                  <label className="inp-label">Category *</label>
-                  <select className="inp sel" value={productForm.category} onChange={e=>setProductForm({...productForm,category:e.target.value})}>
+            <div className="icard">
+              <h3 className="ctitle">🎯 Analyze a Product</h3>
+              <div className="igrid">
+                <div className="igrp"><label className="ilbl">Product Name *</label><input className="di" placeholder="e.g. Portable Blender" value={productForm.name} onChange={e=>setProductForm({...productForm,name:e.target.value})}/></div>
+                <div className="igrp"><label className="ilbl">Category *</label>
+                  <select className="di sel" value={productForm.category} onChange={e=>setProductForm({...productForm,category:e.target.value})}>
                     <option value="">Select category</option>
                     {["Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Fashion","Pet Supplies","Toys & Games","Health & Wellness","Outdoor & Sports"].map(c=><option key={c}>{c}</option>)}
                   </select>
                 </div>
-                <div className="inp-group">
-                  <label className="inp-label">Platform *</label>
-                  <select className="inp sel" value={productForm.platform} onChange={e=>setProductForm({...productForm,platform:e.target.value})}>
+                <div className="igrp"><label className="ilbl">Platform *</label>
+                  <select className="di sel" value={productForm.platform} onChange={e=>setProductForm({...productForm,platform:e.target.value})}>
                     <option value="">Select platform</option>
                     {["Amazon","Shopify","Meesho","Flipkart","Instagram","TikTok Shop","Etsy","Facebook Marketplace","WooCommerce"].map(p=><option key={p}>{p}</option>)}
                   </select>
                 </div>
               </div>
-              {error && <div className="error-banner">{error}{error.includes("Upgrade")&&<span className="upg-link" onClick={()=>setShowPremium(true)}> → Upgrade Now</span>}</div>}
-              <button className="analyze-btn" onClick={runAnalysis} disabled={loading}>
-                🚀 Get AI Analysis {currentPlan==="free"&&<span className="ad-note">· Ad plays first</span>}
+              {error&&<div className="ebanner">{error}{error.includes("Upgrade")&&<span className="ulink" onClick={()=>setShowPremium(true)}> → Upgrade Now</span>}</div>}
+              <button className="abtn" onClick={runAnalysis} disabled={loading}>
+                🚀 Get AI Analysis {curPlan==="free"&&<span className="anote">· Ad plays first</span>}
               </button>
-              {currentPlan==="free"&&(
-                <p className="free-note">Free: {usageInfo?.remaining??FREE_DAILY_LIMIT}/{FREE_DAILY_LIMIT} today · <span className="upg-link" onClick={()=>setShowPremium(true)}>Upgrade — no ads + 30 analyses →</span></p>
-              )}
+              {curPlan==="free"&&<p className="fnote">Free: {usageInfo?.remaining??FREE_DAILY_LIMIT}/{FREE_DAILY_LIMIT} today · <span className="ulink" onClick={()=>setShowPremium(true)}>Upgrade — no ads + 30 analyses →</span></p>}
             </div>
 
-            {analysis && (
+            {analysis&&(
               <div className="fade-in">
-                <h2 className="results-title">📊 Results — <span className="grad-text">{productForm.name}</span></h2>
-                <div className="metrics-row">
-                  {[{label:"🔥 Viral Score",val:analysis.viral_score,color:"#f59e0b"},{label:"📈 Demand",val:analysis.demand_level,color:"#10b981"},{label:"⚔️ Competition",val:analysis.competition_level,color:"#ef4444"},{label:"💰 Price Range",val:analysis.price_range,color:"#6366f1"}].map(m=>(
-                    <div key={m.label} className="metric-card">
-                      <div className="metric-label">{m.label}</div>
-                      <div className="metric-val" style={{color:m.color}}>{m.val}</div>
-                    </div>
+                <h2 className="rtitle">📊 Results — <span className="grad">{productForm.name}</span></h2>
+                <div className="mrow">
+                  {[{l:"🔥 Viral Score",v:analysis.viral_score,c:"#f59e0b"},{l:"📈 Demand",v:analysis.demand_level,c:"#10b981"},{l:"⚔️ Competition",v:analysis.competition_level,c:"#ef4444"},{l:"💰 Price Range",v:analysis.price_range,c:"#6366f1"}].map(m=>(
+                    <div key={m.l} className="mcard"><div className="mlbl">{m.l}</div><div className="mval" style={{color:m.c}}>{m.v}</div></div>
                   ))}
                 </div>
-                <div className="two-col">
-                  <div className="glass-card"><h4 className="gc-title">📝 Description</h4><p className="gc-text">{analysis.description}</p></div>
-                  <div className="glass-card"><h4 className="gc-title">🎯 Target Audience</h4><p className="gc-text">{analysis.target_audience}</p></div>
+                <div className="tcol">
+                  <div className="gcard"><h4 className="gct">📝 Description</h4><p className="gctx">{analysis.description}</p></div>
+                  <div className="gcard"><h4 className="gct">🎯 Target Audience</h4><p className="gctx">{analysis.target_audience}</p></div>
                 </div>
-                <div className="glass-card">
-                  <h4 className="gc-title">🪝 Viral Hooks</h4>
-                  {analysis.hooks?.map((h,i)=><div key={i} className="hook-item"><span className="hook-num">{i+1}</span><span>{h}</span></div>)}
-                </div>
-                <div className="glass-card">
-                  <h4 className="gc-title">🔑 SEO Keywords</h4>
-                  <div className="kw-grid">{analysis.keywords?.map((k,i)=><div key={i} className="kw-chip">{k}</div>)}</div>
-                </div>
-                <div className="platforms-section">
-                  <div className="ps-header">
-                    <div className="ps-title">📺 Run Ads + Publish Content</div>
-                    {currentPlan==="free"&&<div className="ps-badge">🔒 PREMIUM</div>}
-                  </div>
+                <div className="gcard"><h4 className="gct">🪝 Viral Hooks</h4>{analysis.hooks?.map((h,i)=><div key={i} className="hitem"><span className="hnum">{i+1}</span><span>{h}</span></div>)}</div>
+                <div className="gcard"><h4 className="gct">🔑 Keywords</h4><div className="kwg">{analysis.keywords?.map((k,i)=><div key={i} className="kwc">{k}</div>)}</div></div>
+                <div className="psec">
+                  <div className="psh"><div className="pst">📺 Run Ads + Publish Content</div>{curPlan==="free"&&<div className="psb-badge">🔒 PREMIUM</div>}</div>
                   <p className="ps-sub">Complete ad strategy + video publishing guide for every platform</p>
-                  <div className="platforms-grid">
+                  <div className="pgrid">
                     {PLATFORMS.map(p=>(
-                      <div key={p.id} className={"platform-btn"+(selectedPlatform===p.id?" active":"")} onClick={()=>fetchPlatformData(p.id)} style={{borderColor:selectedPlatform===p.id?p.color:undefined}}>
-                        {currentPlan==="free"&&<div className="lock-badge">🔒</div>}
-                        <div className="platform-logo" dangerouslySetInnerHTML={{__html:p.logo}}/>
-                        <div className="platform-name">{p.name}</div>
+                      <div key={p.id} className={"pbtn"+(selPlatform===p.id?" on":"")} onClick={()=>fetchPlatform(p.id)} style={{borderColor:selPlatform===p.id?p.color:undefined}}>
+                        {curPlan==="free"&&<div className="plk">🔒</div>}
+                        <div className="plogo" dangerouslySetInnerHTML={{__html:p.logo}}/>
+                        <div className="pname">{p.name}</div>
                       </div>
                     ))}
                   </div>
-                  {selectedPlatform && currentPlan==="premium" && (
-                    <div className="platform-detail">
-                      {platformLoading ? (
-                        <div style={{textAlign:"center",padding:24}}><div className="spinner" style={{margin:"0 auto 10px"}}/><p style={{color:"#64748b",fontSize:13}}>Generating strategy...</p></div>
-                      ) : platformData[selectedPlatform] ? (()=>{
-                        const d = platformData[selectedPlatform];
-                        return (<>
-                          {d.account_setup&&<div className="pd-block"><div className="pd-title">🏗️ Account Setup</div><div className="pd-steps">{d.account_setup.split("\n").filter(Boolean).map((s,i)=><div key={i} className="pd-step"><span className="pd-step-num">{i+1}</span><span>{s.replace(/^\d+[\.\)]\s*/,"")}</span></div>)}</div></div>}
-                          {d.targeting&&<div className="pd-block"><div className="pd-title">🎯 Targeting</div><div className="pd-text">{d.targeting}</div></div>}
-                          {d.ad_keywords?.length>0&&<div className="pd-block"><div className="pd-title">🔑 Keywords</div><div className="pd-chips">{d.ad_keywords.map((k,i)=><div key={i} className="pd-chip">{k}</div>)}</div></div>}
-                          {d.script&&<div className="pd-block"><div className="pd-title">📝 Script</div><div className="pd-text" style={{background:"rgba(99,102,241,0.06)",padding:14,borderRadius:10,border:"1px solid rgba(99,102,241,0.15)",lineHeight:1.75}}>{d.script}</div></div>}
-                          {d.video_steps&&<div className="pd-block"><div className="pd-title">🎬 Video Publishing</div><div className="pd-steps">{d.video_steps.split("\n").filter(Boolean).map((s,i)=><div key={i} className="pd-step"><span className="pd-step-num">{i+1}</span><span>{s.replace(/^\d+[\.\)]\s*/,"")}</span></div>)}</div></div>}
-                          {d.title&&<div className="pd-block"><div className="pd-title">📌 Best Title</div><div className="pd-text" style={{fontWeight:700,color:"#e2e8f0",fontSize:15}}>{d.title}</div></div>}
-                          {d.budget&&<div className="pd-block"><div className="pd-title">💰 Budget</div><div className="pd-text">{d.budget}</div></div>}
-                        </>);
-                      })():null}
+                  {selPlatform && curPlan==="premium" && (
+                    <div className="pdet">
+                      {platLoading?<div style={{textAlign:"center",padding:24}}><div className="spinner" style={{margin:"0 auto 10px"}}/><p style={{color:"#64748b",fontSize:13}}>Generating...</p></div>
+                      :platData[selPlatform]?(()=>{const d=platData[selPlatform];return(<>
+                        {d.account_setup&&<div className="pdb"><div className="pdt">🏗️ Account Setup</div><div className="pdsteps">{d.account_setup.split("\n").filter(Boolean).map((s,i)=><div key={i} className="pdstep"><span className="pdsn">{i+1}</span><span>{s.replace(/^\d+[\.\)]\s*/,"")}</span></div>)}</div></div>}
+                        {d.targeting&&<div className="pdb"><div className="pdt">🎯 Targeting</div><div className="pdtx">{d.targeting}</div></div>}
+                        {d.ad_keywords?.length>0&&<div className="pdb"><div className="pdt">🔑 Keywords</div><div className="pdch">{d.ad_keywords.map((k,i)=><div key={i} className="pdchip">{k}</div>)}</div></div>}
+                        {d.script&&<div className="pdb"><div className="pdt">📝 Script</div><div className="pdtx" style={{background:"rgba(99,102,241,0.06)",padding:14,borderRadius:10,border:"1px solid rgba(99,102,241,0.15)",lineHeight:1.75}}>{d.script}</div></div>}
+                        {d.video_steps&&<div className="pdb"><div className="pdt">🎬 Video Publishing</div><div className="pdsteps">{d.video_steps.split("\n").filter(Boolean).map((s,i)=><div key={i} className="pdstep"><span className="pdsn">{i+1}</span><span>{s.replace(/^\d+[\.\)]\s*/,"")}</span></div>)}</div></div>}
+                        {d.title&&<div className="pdb"><div className="pdt">📌 Best Title</div><div className="pdtx" style={{fontWeight:700,color:"#e2e8f0",fontSize:15}}>{d.title}</div></div>}
+                        {d.budget&&<div className="pdb"><div className="pdt">💰 Budget</div><div className="pdtx">{d.budget}</div></div>}
+                      </>);})():null}
                     </div>
                   )}
-                  {currentPlan==="free"&&(
-                    <div className="lock-box">
-                      <div className="lock-emoji">🔒</div>
-                      <div className="lock-title">Premium Feature</div>
-                      <div className="lock-sub">Unlock complete ad strategies + video guides for all 8 platforms</div>
-                      <button className="unlock-btn" onClick={()=>setShowPremium(true)}>💎 Unlock for ₹149</button>
-                    </div>
-                  )}
+                  {curPlan==="free"&&<div className="lkbox"><div className="lkemoji">🔒</div><div className="lktitle">Premium Feature</div><div className="lksub">Unlock complete strategies for all 8 platforms</div><button className="unlkbtn" onClick={()=>setShowPremium(true)}>💎 Unlock for ₹149</button></div>}
                 </div>
               </div>
             )}
           </div>
-          <footer className="footer">🧠 Product Analyzer · Built with AI · © YesYouPro</footer>
+          <footer>🧠 Product Analyzer · Built with AI · © YesYouPro</footer>
         </div>
       )}
     </>
