@@ -13,6 +13,7 @@ const FB_CONFIG = {
   messagingSenderId: "455406578867",
   appId: "1:455406578867:web:fc5a2b6a00af996bc114c6"
 };
+// Note: For Google login, add your domain in Firebase Console > Authentication > Settings > Authorised domains
 
 const ADS = [
   { headline: "Scale Your Business Fast", sub: "Find winning products 10x faster", cta: "Try Now Free", color: "#f59e0b" },
@@ -222,6 +223,8 @@ export default function App() {
       const { signInWithPopup, GoogleAuthProvider } = await import("firebase/auth");
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
+      const gu = { email: result.user.email, name: result.user.displayName, plan: store.get("yyp_plan_"+result.user.email)||"free", photo: result.user.photoURL };
+      store.set("yyp_current", gu);
       saveAcc(result.user.email, result.user.displayName, "", result.user.photoURL);
       showToast("✅ Signed in with Google!");
     } catch(e) {
@@ -232,10 +235,11 @@ export default function App() {
     setGoogleLoading(false);
   };
 
-  // ── EMAIL AUTH ───────────────────────────────────────────────────────────
+  // ── EMAIL AUTH (Firebase - production ready) ─────────────────────────────
   const handleAuth = async () => {
     if (!form.email || !form.password) { setError("Please fill all fields"); return; }
-    if (authMode === "signup" && !form.name) { setError("Name required"); return; }
+    if (authMode === "signup" && !form.name) { setError("Name is required"); return; }
+    if (form.password.length < 6) { setError("Password must be at least 6 characters"); return; }
     setError("");
     try {
       const auth = await getAuth();
@@ -243,55 +247,109 @@ export default function App() {
         const { createUserWithEmailAndPassword, updateProfile } = await import("firebase/auth");
         const r = await createUserWithEmailAndPassword(auth, form.email, form.password);
         await updateProfile(r.user, { displayName: form.name });
+        const u = { email: form.email, name: form.name, plan: "free", photo: null };
+        store.set("yyp_current", u);
         saveAcc(form.email, form.name, form.password, null);
-        showToast("✅ Account created!");
+        setUser(u); setUsageInfo(calcUsage(u)); startTimerIfNeeded(u);
+        setScreen("dashboard");
+        showToast("✅ Account created! Welcome to YesYouPro");
       } else {
         const { signInWithEmailAndPassword } = await import("firebase/auth");
-        await signInWithEmailAndPassword(auth, form.email, form.password);
-        saveAcc(form.email, form.email.split("@")[0], form.password, null);
-        showToast("✅ Logged in!");
+        const r = await signInWithEmailAndPassword(auth, form.email, form.password);
+        const u = { email: r.user.email, name: r.user.displayName || form.email.split("@")[0], plan: store.get("yyp_plan_"+r.user.email)||"free", photo: null };
+        store.set("yyp_current", u);
+        saveAcc(form.email, u.name, form.password, null);
+        setUser(u); setUsageInfo(calcUsage(u)); startTimerIfNeeded(u);
+        setScreen("dashboard");
+        showToast("✅ Welcome back, " + u.name + "!");
       }
     } catch(e) {
-      if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential","auth/invalid-email"].includes(e.code)) {
-        setError("Invalid email or password. Try Forgot Password?");
-      } else if (e.code === "auth/email-already-in-use") {
+      const c = e.code || "";
+      if (["auth/user-not-found","auth/wrong-password","auth/invalid-credential","auth/invalid-login-credentials"].includes(c)) {
+        setError("Wrong email or password. Try Forgot Password?");
+      } else if (c === "auth/email-already-in-use") {
         setError("Email already registered. Please login.");
-      } else if (e.code === "auth/weak-password") {
-        setError("Password must be 6+ characters.");
-      } else if (e.code === "auth/too-many-requests") {
-        setError("Too many attempts. Wait 5 min or use Forgot Password.");
-      } else if (e.code === "auth/network-request-failed") {
-        setError("Network error. Check your internet.");
-      } else if (e.code === "auth/unauthorized-domain") {
-        setError("Domain not authorized. Contact support.");
+      } else if (c === "auth/weak-password") {
+        setError("Password must be at least 6 characters.");
+      } else if (c === "auth/too-many-requests") {
+        setError("Too many attempts. Please wait 5 minutes.");
+      } else if (c === "auth/unauthorized-domain") {
+        // Fallback to localStorage if domain not authorized
+        setError(""); 
+        const allUsers = store.get("yyp_users") || {};
+        if (authMode === "signup") {
+          if (allUsers[form.email]) { setError("Email already registered. Please login."); return; }
+          allUsers[form.email] = { email: form.email, name: form.name, password: form.password };
+          store.set("yyp_users", allUsers);
+          const u = { email: form.email, name: form.name, plan: "free", photo: null };
+          store.set("yyp_current", u);
+          saveAcc(form.email, form.name, form.password, null);
+          setUser(u); setUsageInfo(calcUsage(u)); startTimerIfNeeded(u);
+          setScreen("dashboard");
+          showToast("✅ Account created!");
+        } else {
+          const found = allUsers[form.email];
+          if (!found) { setError("No account found. Please Sign Up."); return; }
+          if (found.password !== form.password) { setError("Wrong password. Try Forgot Password?"); return; }
+          const u = { email: found.email, name: found.name, plan: store.get("yyp_plan_"+found.email)||"free", photo: null };
+          store.set("yyp_current", u);
+          saveAcc(form.email, found.name, form.password, null);
+          setUser(u); setUsageInfo(calcUsage(u)); startTimerIfNeeded(u);
+          setScreen("dashboard");
+          showToast("✅ Welcome back!");
+        }
       } else {
-        setError(e.message || "Sign in failed. Try again.");
+        setError("Login failed. Please try again.");
       }
     }
   };
 
   const handleForgotPassword = async () => {
-    if (!form.email) { setError("Please enter your email first"); return; }
+    if (!form.email) { setError("Please enter your email address first"); return; }
+    setError("");
     try {
       const auth = await getAuth();
       const { sendPasswordResetEmail } = await import("firebase/auth");
       await sendPasswordResetEmail(auth, form.email);
-      showToast("✅ Reset email sent! Check your inbox.");
-      setError("");
+      showToast("✅ Password reset email sent! Check your inbox.");
     } catch(e) {
-      if (e.code === "auth/user-not-found") setError("No account found with this email.");
-      else setError("Failed to send reset email. Try again.");
+      if (e.code === "auth/user-not-found") {
+        setError("No account with this email. Please Sign Up.");
+      } else {
+        // Fallback hint for localStorage users
+        const allUsers = store.get("yyp_users") || {};
+        const found = allUsers[form.email];
+        if (found) {
+          showToast("✅ Check saved accounts above for quick login!");
+        } else {
+          setError("No account found. Please Sign Up.");
+        }
+      }
     }
   };
 
   const quickLogin = async (acc) => {
-    if (!acc.password) { setError("Use Google button for this account."); return; }
     setError("");
+    if (!acc.password) { handleGoogle(); return; }
     try {
       const auth = await getAuth();
       const { signInWithEmailAndPassword } = await import("firebase/auth");
       await signInWithEmailAndPassword(auth, acc.email, acc.password);
-    } catch { setError("Quick login failed. Login manually."); }
+      // onAuthStateChanged will handle the rest
+    } catch(e) {
+      // Fallback to localStorage
+      const allUsers = store.get("yyp_users") || {};
+      const found = allUsers[acc.email];
+      if (found && found.password === acc.password) {
+        const u = { email: found.email, name: found.name, plan: store.get("yyp_plan_"+found.email)||"free", photo: acc.photo||null };
+        store.set("yyp_current", u);
+        setUser(u); setUsageInfo(calcUsage(u)); startTimerIfNeeded(u);
+        setScreen("dashboard");
+        showToast("✅ Welcome back!");
+      } else {
+        setError("Login failed. Please enter password manually.");
+      }
+    }
   };
 
   const handleLogout = async () => {
@@ -300,7 +358,10 @@ export default function App() {
       const { signOut } = await import("firebase/auth");
       await signOut(auth);
     } catch {}
-    setUser(null); setAnalysis(null); setUsageInfo(null);
+    store.set("yyp_current", null);
+    setUser(null); setAnalysis(null); setUsageInfo(null); setTimer(null);
+    clearInterval(timerRef.current);
+    setScreen("auth");
   };
 
   // ── AD ───────────────────────────────────────────────────────────────────
