@@ -142,7 +142,7 @@ export default function App() {
 
   const startTimerIfNeeded = (u) => {
     if (!u) return;
-    const plan = store.get("plan_"+u?.email) || "free";
+    const plan = store.get("yyp_plan_"+u?.email) || "free";
     if (plan === "premium") { setTimer(null); return; }
     const used = store.get("use_"+u?.email+"_"+todayKey()) || 0;
     if (used < FREE_DAILY_LIMIT) { setTimer(null); return; }
@@ -157,7 +157,7 @@ export default function App() {
       if (remaining <= 0) {
         clearInterval(timerRef.current);
         // Reset daily usage
-        store.set("use_"+u?.email+"_"+todayKey(), 0);
+        store.set("yyp_daily_"+u?.email+"_"+todayKey(), "0");
         store.set("limit_hit_"+u?.email, null);
         setTimer(null);
         showToast("✅ Your 2 free analyses are reset!");
@@ -174,7 +174,7 @@ export default function App() {
   const todayKey = () => new Date().toISOString().split("T")[0];
 
   const calcUsage = (u) => {
-    const plan = store.get("plan_"+u?.email) || "free";
+    const plan = store.get("yyp_plan_"+u?.email) || "free";
     if (plan === "premium") {
       const pd = store.get("prem_"+u?.email);
       if (!pd) return { plan:"free", remaining:FREE_DAILY_LIMIT, total:FREE_DAILY_LIMIT };
@@ -187,7 +187,7 @@ export default function App() {
   };
 
   const addUsage = (u) => {
-    const plan = store.get("plan_"+u?.email) || "free";
+    const plan = store.get("yyp_plan_"+u?.email) || "free";
     if (plan === "premium") {
       const pd = store.get("prem_"+u?.email);
       if (pd) store.set("prem_"+u?.email, {...pd, used:(pd.used||0)+1});
@@ -304,7 +304,7 @@ export default function App() {
       if (lim.showPremium) { setShowPremium(true); return; }
       setError(lim.msg); return; 
     }
-    const plan = store.get("plan_"+user?.email) || "free";
+    const plan = store.get("yyp_plan_"+user?.email) || "free";
     if (plan === "free") await showAd2();
     setLoading(true); setAnalysis(null); setSelPlatform(null); setPlatData({});
     try {
@@ -315,7 +315,7 @@ export default function App() {
       // Check if limit just hit - store timestamp for timer
       const newInfo = calcUsage(user);
       setUsageInfo(newInfo);
-      if (newInfo.remaining <= 0 && (store.get("plan_"+user?.email)||"free")==="free") {
+      if (newInfo.remaining <= 0 && (store.get("yyp_plan_"+user?.email)||"free")==="free") {
         if (!store.get("limit_hit_"+user?.email)) {
           store.set("limit_hit_"+user?.email, Date.now());
           setTimeout(() => startTimerIfNeeded(user), 500);
@@ -335,7 +335,7 @@ export default function App() {
   };
 
   const fetchPlatform = async (pid) => {
-    const plan = store.get("plan_"+user?.email) || "free";
+    const plan = store.get("yyp_plan_"+user?.email) || "free";
     const isFirstFree = firstAnalysisDone && !store.get("first_plat_used_"+user?.email);
     if (plan !== "premium" && !isFirstFree) { setShowPremium(true); return; }
     // Mark first free platform used
@@ -359,8 +359,8 @@ export default function App() {
     setPaymentStep("processing");
     await new Promise(r=>setTimeout(r,2000));
     const expiry = new Date(Date.now()+PREMIUM_DAYS*86400000).toISOString();
-    store.set("prem_"+user?.email, { expiry, used:0 });
-    store.set("plan_"+user?.email, "premium");
+    store.set("yyp_prem_"+user?.email, { expiry, used:0 });
+    store.set("yyp_plan_"+user?.email, "premium");
     store.set("limit_hit_"+user?.email, null);
     clearInterval(timerRef.current);
     setTimer(null);
@@ -434,53 +434,53 @@ export default function App() {
   };
 
   // ── RAZORPAY PAYMENT ────────────────────────────────────────────────────
-  const handleRazorpay = () => {
-    const rzpKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY || "rzp_test_YOUR_KEY_HERE";
-    if (rzpKey.includes("YOUR_KEY")) {
-      // Demo mode - simulate payment
+  const loadRazorpay = () => new Promise((resolve) => {
+    if (window.Razorpay) { resolve(true); return; }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+
+  const handleRazorpay = async () => {
+    const rzpKey = (typeof window !== "undefined" && window.__RZP_KEY__) || "";
+    
+    // If no real key added yet — demo mode
+    if (!rzpKey || rzpKey === "RAZORPAY_KEY_PLACEHOLDER" || rzpKey.includes("PLACEHOLDER")) {
+      setPaymentStep("processing");
+      await new Promise(r => setTimeout(r, 1500));
       activatePremium();
       return;
     }
+
+    const loaded = await loadRazorpay();
+    if (!loaded) { showToast("Payment gateway failed to load. Check internet."); return; }
+
     const options = {
       key: rzpKey,
-      amount: 24900, // ₹249 in paise
+      amount: 24900,
       currency: "INR",
       name: "YesYouPro",
-      description: "Premium Plan - 7 Days / 30 Analyses",
-      image: "https://i.imgur.com/3UbFNxT.png",
+      description: "Premium Plan — 7 Days / 30 Analyses",
       handler: function(response) {
         if (response.razorpay_payment_id) {
           activatePremium();
+          showToast("🎉 Payment successful! Premium activated.");
         }
       },
-      prefill: {
-        name: user?.name || "",
-        email: user?.email || "",
-      },
+      prefill: { name: user?.name||"", email: user?.email||"" },
       theme: { color: "#6366f1" },
-      modal: {
-        ondismiss: () => showToast("Payment cancelled. Try again!")
-      }
+      modal: { ondismiss: () => showToast("Payment cancelled.") },
     };
-    if (typeof window !== "undefined" && window.Razorpay) {
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", () => showToast("Payment failed. Please try again."));
-      rzp.open();
-    } else {
-      // Load Razorpay SDK dynamically
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => {
-        const rzp = new window.Razorpay(options);
-        rzp.open();
-      };
-      document.body.appendChild(script);
-    }
+    const rzp = new window.Razorpay(options);
+    rzp.on("payment.failed", (r) => showToast("Payment failed: "+r.error.description));
+    rzp.open();
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(null),3500); };
 
-  const curPlan = user ? (store.get("plan_"+user?.email)||"free") : "free";
+  const curPlan = user ? (store.get("yyp_plan_"+user?.email)||user?.plan||"free") : "free";
   const adW = ((5-adTimer)/5)*100;
   const STEPS = ["Product data received","Analyzing market trends","Generating AI insights","Creating viral hooks"];
 
@@ -725,6 +725,8 @@ export default function App() {
   return (
     <>
       <style>{css}</style>
+      {/* Razorpay key injection */}
+      <script dangerouslySetInnerHTML={{__html: `window.__RZP_KEY__ = "${process.env.NEXT_PUBLIC_RAZORPAY_KEY || ""}";`}} />
       {toast && <div className="toast">{toast}</div>}
 
       {/* LOADING */}
@@ -1099,7 +1101,7 @@ export default function App() {
             {/* PROFIT CALCULATOR */}
             {activeTab==="profit"&&(
               <div className="pcalc fade-in" style={{position:"relative"}}>
-                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Profit Calculator with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
+                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#94a3b8",fontSize:13,marginBottom:18,textAlign:"center",padding:"0 24px"}}>Unlock Profit Calculator with Premium ₹249</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 6px 20px rgba(245,158,11,0.4)"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>💰 Profit Calculator</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:20}}>Calculate your real profit, margin & ROI before selling</p>
                 <div className="prow">
