@@ -71,6 +71,7 @@ export default function App() {
   const [selPlatform, setSelPlatform] = useState(null);
   const [platData, setPlatData] = useState({});
   const [platLoading, setPlatLoading] = useState(false);
+  const [firstAnalysisDone, setFirstAnalysisDone] = useState(false);
   const adRef = useRef(null);
 
   // ── INIT FIREBASE AUTH LISTENER ─────────────────────────────────────────
@@ -96,6 +97,7 @@ export default function App() {
             };
             setUser(u);
             setUsageInfo(calcUsage(u));
+            setFirstAnalysisDone(store.get("first_analysis_"+fbUser.email) || false);
             setScreen("dashboard");
           } else {
             setScreen("auth");
@@ -254,6 +256,13 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error||"Failed");
       addUsage(user); setUsageInfo(calcUsage(user)); setAnalysis(data);
+      // First analysis unlocks platform section once
+      if (!store.get("first_analysis_"+user?.email)) {
+        store.set("first_analysis_"+user?.email, true);
+        setFirstAnalysisDone(true);
+      } else {
+        setFirstAnalysisDone(false);
+      }
       showToast("✅ Analysis complete!");
     } catch(e) { setError("Analysis failed: "+e.message); }
     setLoading(false);
@@ -261,7 +270,13 @@ export default function App() {
 
   const fetchPlatform = async (pid) => {
     const plan = store.get("plan_"+user?.email) || "free";
-    if (plan !== "premium") { setShowPremium(true); return; }
+    const isFirstFree = firstAnalysisDone && !store.get("first_plat_used_"+user?.email);
+    if (plan !== "premium" && !isFirstFree) { setShowPremium(true); return; }
+    // Mark first free platform used
+    if (isFirstFree && plan !== "premium") {
+      store.set("first_plat_used_"+user?.email, true);
+      setFirstAnalysisDone(false);
+    }
     setSelPlatform(pid);
     if (platData[pid]) return;
     setPlatLoading(true);
@@ -513,12 +528,12 @@ export default function App() {
               <>
                 <div className="pbadge">💎 PREMIUM</div>
                 <h2 className="ptitle">Unlock Everything</h2>
-                <div className="pprice">₹149 <span>/ 7 days</span></div>
+                <div className="pprice">₹249 <span>/ 7 days</span></div>
                 <div className="phigh">🎉 After purchase:<br/>✅ <b>Zero ads</b><br/>✅ <b>30 analyses</b> in 7 days<br/>✅ <b>All 8 platforms</b> unlocked</div>
                 <div className="pflist">
                   {["📺 Ads on 8+ platforms","🎬 Video Publishing Guides","🔑 Keywords & scripts","💰 Budget tips","🚫 No ads ever"].map(f=><div key={f} className="pfi">{f}</div>)}
                 </div>
-                <button className="pbtn2" onClick={()=>setShowPayment(true)}>🔓 Unlock — ₹149</button>
+                <button className="pbtn2" onClick={()=>setShowPayment(true)}>🔓 Unlock — ₹249</button>
                 <button className="mcancel" onClick={()=>setShowPremium(false)}>Maybe later</button>
               </>
             ) : paymentStep==="form" ? (
@@ -526,12 +541,12 @@ export default function App() {
                 <h2 className="ptitle">Complete Payment</h2>
                 <div className="paybox">
                   <div className="payrow"><span>Plan</span><span>Premium 7-day</span></div>
-                  <div className="payrow"><span>Amount</span><span style={{color:"#f59e0b",fontWeight:700}}>₹149</span></div>
+                  <div className="payrow"><span>Amount</span><span style={{color:"#f59e0b",fontWeight:700}}>₹249</span></div>
                   <div className="payrow"><span>Analyses</span><span style={{color:"#10b981"}}>30</span></div>
                   <div className="payrow"><span>Ads</span><span style={{color:"#10b981"}}>Zero</span></div>
                 </div>
                 <p className="paynote">⚠️ Add Razorpay for real payments. Demo simulates success.</p>
-                <button className="pbtn2" onClick={activatePremium}>💳 Pay ₹149 (Demo)</button>
+                <button className="pbtn2" onClick={activatePremium}>💳 Pay ₹249 (Demo)</button>
                 <button className="mcancel" onClick={()=>setShowPayment(false)}>← Back</button>
               </>
             ) : paymentStep==="processing" ? (
@@ -687,7 +702,8 @@ export default function App() {
                   <div className="pgrid">
                     {PLATFORMS.map(p=>(
                       <div key={p.id} className={"pbtn"+(selPlatform===p.id?" on":"")} onClick={()=>fetchPlatform(p.id)} style={{borderColor:selPlatform===p.id?p.color:undefined}}>
-                        {curPlan==="free"&&<div className="plk">🔒</div>}
+                        {curPlan==="free"&&!firstAnalysisDone&&<div className="plk">🔒</div>}
+                        {curPlan==="free"&&firstAnalysisDone&&<div className="plk" style={{color:"#10b981"}}>🎁</div>}
                         <div className="plogo" dangerouslySetInnerHTML={{__html:p.logo}}/>
                         <div className="pname">{p.name}</div>
                       </div>
@@ -707,7 +723,21 @@ export default function App() {
                       </>);})():null}
                     </div>
                   )}
-                  {curPlan==="free"&&<div className="lkbox"><div className="lkemoji">🔒</div><div className="lktitle">Premium Feature</div><div className="lksub">Unlock complete strategies for all 8 platforms</div><button className="unlkbtn" onClick={()=>setShowPremium(true)}>💎 Unlock for ₹149</button></div>}
+                  {curPlan==="free"&&!firstAnalysisDone&&(
+                    <div className="lkbox">
+                      <div className="lkemoji">🔒</div>
+                      <div className="lktitle">Premium Feature</div>
+                      <div className="lksub">You got 1 free platform preview! Upgrade to unlock all 8 platforms with complete ad strategies & video guides.</div>
+                      <button className="unlkbtn" onClick={()=>setShowPremium(true)}>💎 Unlock All — ₹249</button>
+                    </div>
+                  )}
+                  {curPlan==="free"&&firstAnalysisDone&&(
+                    <div className="lkbox" style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:14,padding:20}}>
+                      <div style={{fontSize:36,marginBottom:8}}>🎁</div>
+                      <div className="lktitle" style={{color:"#10b981"}}>1 Free Preview Available!</div>
+                      <div className="lksub">Tap any platform below to see a free preview. Upgrade for all 8 platforms.</div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
