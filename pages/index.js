@@ -793,17 +793,25 @@ export default function App() {
               <h3 className="ctitle">🎯 Analyze a Product</h3>
               <div className="igrid">
                 <div className="igrp"><label className="ilbl">Product Name *</label><input className="di" placeholder="e.g. Portable Blender" value={productForm.name} onChange={e=>setProductForm({...productForm,name:e.target.value})}/></div>
-                <div className="igrp"><label className="ilbl">Category *</label>
-                  <select className="di sel" value={productForm.category} onChange={e=>setProductForm({...productForm,category:e.target.value})}>
-                    <option value="">Select category</option>
-                    {["Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Fashion","Pet Supplies","Toys & Games","Health & Wellness","Outdoor & Sports"].map(c=><option key={c}>{c}</option>)}
-                  </select>
+                <div className="igrp">
+                  <label className="ilbl">Category *</label>
+                  <div style={{position:"relative"}}>
+                    <select className="di sel" value={productForm.category} onChange={e=>setProductForm({...productForm,category:e.target.value})} style={{appearance:"none",WebkitAppearance:"none",paddingRight:36,background:"linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,41,59,0.8))",border:"1px solid rgba(99,102,241,0.25)",borderRadius:12,color:productForm.category?"#f8fafc":"#64748b"}}>
+                      <option value="" style={{background:"#0f172a",color:"#64748b"}}>Select category</option>
+                      {[{v:"Electronics",e:"💻"},{v:"Beauty & Skincare",e:"💄"},{v:"Home & Kitchen",e:"🏠"},{v:"Fitness",e:"💪"},{v:"Fashion",e:"👗"},{v:"Pet Supplies",e:"🐾"},{v:"Toys & Games",e:"🎮"},{v:"Health & Wellness",e:"❤️"},{v:"Outdoor & Sports",e:"⛺"}].map(c=><option key={c.v} value={c.v} style={{background:"#0f172a"}}>{c.e} {c.v}</option>)}
+                    </select>
+                    <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:"#6366f1",pointerEvents:"none",fontSize:16}}>▾</span>
+                  </div>
                 </div>
-                <div className="igrp"><label className="ilbl">Platform *</label>
-                  <select className="di sel" value={productForm.platform} onChange={e=>setProductForm({...productForm,platform:e.target.value})}>
-                    <option value="">Select platform</option>
-                    {["Amazon","Shopify","Meesho","Flipkart","Instagram","TikTok Shop","Etsy","Facebook Marketplace","WooCommerce"].map(p=><option key={p}>{p}</option>)}
-                  </select>
+                <div className="igrp">
+                  <label className="ilbl">Platform *</label>
+                  <div style={{position:"relative"}}>
+                    <select className="di sel" value={productForm.platform} onChange={e=>setProductForm({...productForm,platform:e.target.value})} style={{appearance:"none",WebkitAppearance:"none",paddingRight:36,background:"linear-gradient(135deg,rgba(15,23,42,0.95),rgba(30,41,59,0.8))",border:"1px solid rgba(99,102,241,0.25)",borderRadius:12,color:productForm.platform?"#f8fafc":"#64748b"}}>
+                      <option value="" style={{background:"#0f172a",color:"#64748b"}}>Select platform</option>
+                      {[{v:"Amazon",e:"📦"},{v:"Shopify",e:"🛒"},{v:"Meesho",e:"🌸"},{v:"Flipkart",e:"⚡"},{v:"Instagram",e:"📸"},{v:"TikTok Shop",e:"🎵"},{v:"Etsy",e:"🎨"},{v:"Facebook Marketplace",e:"📘"},{v:"WooCommerce",e:"🌐"}].map(p=><option key={p.v} value={p.v} style={{background:"#0f172a"}}>{p.e} {p.v}</option>)}
+                    </select>
+                    <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:"#6366f1",pointerEvents:"none",fontSize:16}}>▾</span>
+                  </div>
                 </div>
               </div>
               {error&&<div className="ebanner">{error}{error.includes("Upgrade")&&<span className="ulink" onClick={()=>setShowPremium(true)}> → Upgrade Now</span>}</div>}
@@ -823,7 +831,18 @@ export default function App() {
                 </div>
                 <div className="tcol">
                   <div className="gcard"><h4 className="gct">📝 Description</h4><p className="gctx">{analysis.description}</p></div>
-                  <div className="gcard"><h4 className="gct">🎯 Target Audience</h4><p className="gctx">{analysis.target_audience}</p></div>
+                  <div className="gcard">
+                    <h4 className="gct">🎯 Target Audience</h4>
+                    {Array.isArray(analysis.target_audience)
+                      ? analysis.target_audience.map((a,i)=>(
+                          <div key={i} className="hitem">
+                            <span className="hnum">{i+1}</span>
+                            <span style={{color:"#94a3b8",fontSize:14,lineHeight:1.6}}>{a}</span>
+                          </div>
+                        ))
+                      : <p className="gctx">{analysis.target_audience}</p>
+                    }
+                  </div>
                 </div>
                 <div className="gcard"><h4 className="gct">🪝 Viral Hooks</h4>{analysis.hooks?.map((h,i)=><div key={i} className="hitem"><span className="hnum">{i+1}</span><span>{h}</span></div>)}</div>
                 <div className="gcard"><h4 className="gct">🔑 Keywords</h4><div className="kwg">{analysis.keywords?.map((k,i)=><div key={i} className="kwc">{k}</div>)}</div></div>
@@ -848,8 +867,15 @@ export default function App() {
                         {d.targeting&&<div className="pdb"><div className="pdt">🎯 Targeting</div><div className="pdtx">{d.targeting}</div></div>}
                         {d.ad_keywords?.length>0&&<div className="pdb"><div className="pdt">🔑 Keywords</div><div className="pdch">{d.ad_keywords.map((k,i)=><div key={i} className="pdchip">{k}</div>)}</div></div>}
                         {d.script&&<div className="pdb"><div className="pdt">📝 Script</div><div className="pdtx" style={{background:"rgba(99,102,241,0.06)",padding:14,borderRadius:10,border:"1px solid rgba(99,102,241,0.15)",lineHeight:1.75}}>{d.script}</div></div>}
-                        {d.video_steps&&<div className="pdb"><div className="pdt">🎬 Video Publishing</div><div className="pdsteps">{d.video_steps.split("\n").filter(Boolean).map((s,i)=><div key={i} className="pdstep"><span className="pdsn">{i+1}</span><span>{s.replace(/^\d+[\.\)]\s*/,"")}</span></div>)}</div></div>}
-                        {d.title&&<div className="pdb"><div className="pdt">📌 Best Title</div><div className="pdtx" style={{fontWeight:700,color:"#e2e8f0",fontSize:15}}>{d.title}</div></div>}
+                        {d.video_steps&&<div className="pdb"><div className="pdt">🎬 Video Publishing Steps</div><div className="pdsteps">{d.video_steps.split("\n").filter(s=>s.trim()).map((s,i)=><div key={i} className="pdstep"><span className="pdsn">{i+1}</span><span style={{flex:1}}>{s.replace(/^Step\s*\d+[:\s]*/i,"").trim()}</span></div>)}</div></div>}
+                        {(d.titles||d.title)&&<div className="pdb">
+                          <div className="pdt">📌 Best Titles</div>
+                          {d.titles ? d.titles.map((t,i)=>(
+                            <div key={i} style={{background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,padding:"10px 14px",marginBottom:8,color:"#e2e8f0",fontSize:14,fontWeight:600}}>
+                              <span style={{color:"#6366f1",marginRight:8}}>#{i+1}</span>{t}
+                            </div>
+                          )) : <div style={{background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.15)",borderRadius:10,padding:"10px 14px",color:"#e2e8f0",fontSize:14,fontWeight:700}}>{d.title}</div>}
+                        </div>}
                         {d.budget&&<div className="pdb"><div className="pdt">💰 Budget</div><div className="pdtx">{d.budget}</div></div>}
                       </>);})():null}
                     </div>
