@@ -4,12 +4,12 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPasswor
 
 // Firebase Config
 const firebaseConfig = {
-  apiKey: "AIzaSyDww7gi4QRRNm4t3PFQ9ny8a2WLV-V9OFU",
-  authDomain: "mood2meet-85866.firebaseapp.com",
-  projectId: "mood2meet-85866",
-  storageBucket: "mood2meet-85866.firebasestorage.app",
-  messagingSenderId: "455406578867",
-  appId: "1:455406578867:web:fc5a2b6a00af996bc114c6"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID + ".firebaseapp.com",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID + ".firebasestorage.app",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
 // Init Firebase once
