@@ -528,38 +528,47 @@ export default function App() {
   });
 
   const handleRazorpay = async () => {
-    const rzpKey = (typeof window !== "undefined" && window.__RZP_KEY__) || "";
-    
-    // If no real key added yet — demo mode
-    if (!rzpKey || rzpKey === "RAZORPAY_KEY_PLACEHOLDER" || rzpKey.includes("PLACEHOLDER")) {
-      setPaymentStep("processing");
-      await new Promise(r => setTimeout(r, 1500));
-      activatePremium();
-      return;
+    setPaymentStep("processing");
+    try {
+      // Get Razorpay key from backend
+      const keyRes = await fetch("/api/payment");
+      const keyData = await keyRes.json();
+      const rzpKey = keyData.key;
+
+      if (!rzpKey) {
+        // No key configured - demo mode
+        await new Promise(r => setTimeout(r, 1500));
+        activatePremium();
+        return;
+      }
+
+      const loaded = await loadRazorpay();
+      if (!loaded) { showToast("Payment gateway failed to load. Check internet."); setPaymentStep("form"); return; }
+
+      const options = {
+        key: rzpKey,
+        amount: 24900,
+        currency: "INR",
+        name: "YesYouPro",
+        description: "Premium Plan — 7 Days / 30 Analyses",
+        handler: function(response) {
+          if (response.razorpay_payment_id) {
+            activatePremium();
+          }
+        },
+        prefill: { name: user?.name||"", email: user?.email||"" },
+        theme: { color: "#6366f1" },
+        modal: { ondismiss: () => { setPaymentStep("form"); showToast("Payment cancelled."); } },
+      };
+      setPaymentStep("form"); // Reset before opening
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", () => { setPaymentStep("form"); showToast("Payment failed. Try again."); });
+      rzp.open();
+    } catch(e) {
+      console.error("Payment error:", e);
+      await new Promise(r => setTimeout(r, 1000));
+      activatePremium(); // Fallback demo
     }
-
-    const loaded = await loadRazorpay();
-    if (!loaded) { showToast("Payment gateway failed to load. Check internet."); return; }
-
-    const options = {
-      key: rzpKey,
-      amount: 24900,
-      currency: "INR",
-      name: "YesYouPro",
-      description: "Premium Plan — 7 Days / 30 Analyses",
-      handler: function(response) {
-        if (response.razorpay_payment_id) {
-          activatePremium();
-          showToast("🎉 Payment successful! Premium activated.");
-        }
-      },
-      prefill: { name: user?.name||"", email: user?.email||"" },
-      theme: { color: "#6366f1" },
-      modal: { ondismiss: () => showToast("Payment cancelled.") },
-    };
-    const rzp = new window.Razorpay(options);
-    rzp.on("payment.failed", (r) => showToast("Payment failed: "+r.error.description));
-    rzp.open();
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(null),3500); };
@@ -809,8 +818,7 @@ export default function App() {
   return (
     <>
       <style>{css}</style>
-      {/* Razorpay key injection */}
-      <script dangerouslySetInnerHTML={{__html: `window.__RZP_KEY__ = "${process.env.NEXT_PUBLIC_RAZORPAY_KEY || ""}";`}} />
+
       {toast && <div className="toast">{toast}</div>}
 
       {/* LOADING */}
