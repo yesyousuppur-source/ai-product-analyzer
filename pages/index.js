@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { initializeApp, getApps } from "firebase/app";
-import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, onAuthStateChanged, signOut } from "firebase/auth";
 
-// Firebase Config - hardcoded for reliability
+// Firebase lazy init - only on client side
 const firebaseConfig = {
   apiKey: "AIzaSyDww7gi4QRRNm4t3PFQ9ny8a2WLV-V9OFU",
   authDomain: "mood2meet-85866.firebaseapp.com",
@@ -12,10 +10,18 @@ const firebaseConfig = {
   appId: "1:455406578867:web:fc5a2b6a00af996bc114c6"
 };
 
-// Init Firebase once
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
+let auth = null;
+let googleProvider = null;
+
+const getFirebaseAuth = async () => {
+  if (auth) return auth;
+  const { initializeApp, getApps } = await import("firebase/app");
+  const { getAuth, GoogleAuthProvider } = await import("firebase/auth");
+  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  auth = getAuth(app);
+  googleProvider = new GoogleAuthProvider();
+  return auth;
+};
 
 const FREE_DAILY_LIMIT = 3;
 const PREMIUM_TOTAL_LIMIT = 30;
@@ -74,7 +80,9 @@ export default function App() {
     const accounts = store.get("apa_saved_accounts") || [];
     setSavedAccounts(accounts);
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    getFirebaseAuth().then((authInstance) => {
+    const { onAuthStateChanged } = require("firebase/auth");
+    const unsubscribe = onAuthStateChanged(authInstance, (firebaseUser) => {
       if (firebaseUser) {
         const u = {
           email: firebaseUser.email,
@@ -89,7 +97,7 @@ export default function App() {
         setScreen("auth");
       }
     });
-    return () => unsubscribe();
+    });
   }, []);
 
   useEffect(() => {
@@ -147,7 +155,9 @@ export default function App() {
     setGoogleLoading(true);
     setError("");
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      const authInstance = await getFirebaseAuth();
+      const { signInWithPopup } = await import("firebase/auth");
+      const result = await signInWithPopup(authInstance, googleProvider);
       const fbUser = result.user;
       saveAccount(fbUser.email, fbUser.displayName, "", fbUser.photoURL);
       showToast("✅ Signed in with Google!");
@@ -170,12 +180,16 @@ export default function App() {
     setError("");
     try {
       if (authMode === "signup") {
-        const result = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        const authInstance = await getFirebaseAuth();
+        const { createUserWithEmailAndPassword, updateProfile } = await import("firebase/auth");
+        const result = await createUserWithEmailAndPassword(authInstance, form.email, form.password);
         await updateProfile(result.user, { displayName: form.name });
         saveAccount(form.email, form.name, form.password, null);
         showToast("✅ Account created!");
       } else {
-        await signInWithEmailAndPassword(auth, form.email, form.password);
+        const authInstance2 = await getFirebaseAuth();
+        const { signInWithEmailAndPassword } = await import("firebase/auth");
+        await signInWithEmailAndPassword(authInstance2, form.email, form.password);
         saveAccount(form.email, form.email.split("@")[0], form.password, null);
         showToast("✅ Logged in!");
       }
@@ -199,14 +213,18 @@ export default function App() {
     }
     setError("");
     try {
-      await signInWithEmailAndPassword(auth, account.email, account.password);
+      const authInst = await getFirebaseAuth();
+      const { signInWithEmailAndPassword: signIn } = await import("firebase/auth");
+      await signIn(authInst, account.email, account.password);
     } catch(e) {
       setError("Quick login failed. Please login manually.");
     }
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
+    const authInst = await getFirebaseAuth();
+    const { signOut } = await import("firebase/auth");
+    await signOut(authInst);
     setUser(null); setAnalysis(null); setUsageInfo(null);
   };
 
