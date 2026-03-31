@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const FREE_DAILY_LIMIT = 3;
+const FREE_DAILY_LIMIT = 2;
 const PREMIUM_TOTAL_LIMIT = 30;
 const PREMIUM_DAYS = 7;
 
@@ -85,6 +85,8 @@ export default function App() {
   const [supplierData, setSupplierData] = useState(null);
   const [supplierLoading, setSupplierLoading] = useState(false);
   const adRef = useRef(null);
+  const [timer, setTimer] = useState(null); // {hours, minutes, seconds}
+  const timerRef = useRef(null);
 
   // ── INIT FIREBASE AUTH LISTENER ─────────────────────────────────────────
   useEffect(() => {
@@ -131,6 +133,43 @@ export default function App() {
     }
   }, [loading]);
 
+  // Timer effect - check and run 24hr countdown
+  useEffect(() => {
+    if (!user) return;
+    startTimerIfNeeded(user);
+    return () => clearInterval(timerRef.current);
+  }, [user]);
+
+  const startTimerIfNeeded = (u) => {
+    if (!u) return;
+    const plan = store.get("plan_"+u?.email) || "free";
+    if (plan === "premium") { setTimer(null); return; }
+    const used = store.get("use_"+u?.email+"_"+todayKey()) || 0;
+    if (used < FREE_DAILY_LIMIT) { setTimer(null); return; }
+    // Find when limit was hit - store the timestamp
+    const limitHitTime = store.get("limit_hit_"+u?.email);
+    if (!limitHitTime) return;
+    clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      const now = Date.now();
+      const resetAt = limitHitTime + 24*60*60*1000;
+      const remaining = resetAt - now;
+      if (remaining <= 0) {
+        clearInterval(timerRef.current);
+        // Reset daily usage
+        store.set("use_"+u?.email+"_"+todayKey(), 0);
+        store.set("limit_hit_"+u?.email, null);
+        setTimer(null);
+        showToast("✅ Your 2 free analyses are reset!");
+      } else {
+        const hours = Math.floor(remaining / (1000*60*60));
+        const minutes = Math.floor((remaining % (1000*60*60)) / (1000*60));
+        const seconds = Math.floor((remaining % (1000*60)) / 1000);
+        setTimer({hours, minutes, seconds, total: remaining});
+      }
+    }, 1000);
+  };
+
   // ── USAGE ────────────────────────────────────────────────────────────────
   const todayKey = () => new Date().toISOString().split("T")[0];
 
@@ -160,8 +199,8 @@ export default function App() {
 
   const checkLimit = (u) => {
     const info = calcUsage(u);
-    if (info.expired) return { ok:false, msg:"Premium expired! Recharge." };
-    if (info.remaining <= 0) return { ok:false, msg:info.plan==="free"?"Daily limit reached. Upgrade!":"Premium limit reached." };
+    if (info.expired) return { ok:false, msg:"Premium expired! Recharge.", showPremium:true };
+    if (info.remaining <= 0) return { ok:false, msg:info.plan==="free"?"You have used all 2 free analyses today!":"Premium limit reached.", showPremium:true };
     return { ok:true };
   };
 
@@ -261,7 +300,10 @@ export default function App() {
     if (!productForm.name || !productForm.category || !productForm.platform) { setError("Fill all fields"); return; }
     setError("");
     const lim = checkLimit(user);
-    if (!lim.ok) { setError(lim.msg); return; }
+    if (!lim.ok) { 
+      if (lim.showPremium) { setShowPremium(true); return; }
+      setError(lim.msg); return; 
+    }
     const plan = store.get("plan_"+user?.email) || "free";
     if (plan === "free") await showAd2();
     setLoading(true); setAnalysis(null); setSelPlatform(null); setPlatData({});
@@ -269,7 +311,17 @@ export default function App() {
       const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(productForm) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error||"Failed");
-      addUsage(user); setUsageInfo(calcUsage(user)); setAnalysis(data);
+      addUsage(user);
+      // Check if limit just hit - store timestamp for timer
+      const newInfo = calcUsage(user);
+      setUsageInfo(newInfo);
+      if (newInfo.remaining <= 0 && (store.get("plan_"+user?.email)||"free")==="free") {
+        if (!store.get("limit_hit_"+user?.email)) {
+          store.set("limit_hit_"+user?.email, Date.now());
+          setTimeout(() => startTimerIfNeeded(user), 500);
+        }
+      }
+      setAnalysis(data);
       // First analysis unlocks platform section once
       if (!store.get("first_analysis_"+user?.email)) {
         store.set("first_analysis_"+user?.email, true);
@@ -309,6 +361,9 @@ export default function App() {
     const expiry = new Date(Date.now()+PREMIUM_DAYS*86400000).toISOString();
     store.set("prem_"+user?.email, { expiry, used:0 });
     store.set("plan_"+user?.email, "premium");
+    store.set("limit_hit_"+user?.email, null);
+    clearInterval(timerRef.current);
+    setTimer(null);
     const u = {...user, plan:"premium"};
     setUser(u); setUsageInfo(calcUsage(u));
     setPaymentStep("success"); showToast("🎉 Premium activated!");
@@ -376,6 +431,51 @@ export default function App() {
       setSupplierData(data);
     } catch(e) { showToast("Failed to fetch supplier data"); }
     setSupplierLoading(false);
+  };
+
+  // ── RAZORPAY PAYMENT ────────────────────────────────────────────────────
+  const handleRazorpay = () => {
+    const rzpKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY || "rzp_test_YOUR_KEY_HERE";
+    if (rzpKey.includes("YOUR_KEY")) {
+      // Demo mode - simulate payment
+      activatePremium();
+      return;
+    }
+    const options = {
+      key: rzpKey,
+      amount: 24900, // ₹249 in paise
+      currency: "INR",
+      name: "YesYouPro",
+      description: "Premium Plan - 7 Days / 30 Analyses",
+      image: "https://i.imgur.com/3UbFNxT.png",
+      handler: function(response) {
+        if (response.razorpay_payment_id) {
+          activatePremium();
+        }
+      },
+      prefill: {
+        name: user?.name || "",
+        email: user?.email || "",
+      },
+      theme: { color: "#6366f1" },
+      modal: {
+        ondismiss: () => showToast("Payment cancelled. Try again!")
+      }
+    };
+    if (typeof window !== "undefined" && window.Razorpay) {
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", () => showToast("Payment failed. Please try again."));
+      rzp.open();
+    } else {
+      // Load Razorpay SDK dynamically
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => {
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+      };
+      document.body.appendChild(script);
+    }
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(null),3500); };
@@ -591,6 +691,17 @@ export default function App() {
     .supp-desc{color:#94a3b8;font-size:13px;line-height:1.65;}
     .supp-link{display:inline-block;margin-top:10px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border-radius:8px;padding:6px 16px;font-size:13px;font-weight:600;text-decoration:none;}
     .calc-btn{background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:12px;padding:13px 28px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.2s;}
+    /* TIMER */
+    .timer-box{background:linear-gradient(135deg,rgba(239,68,68,0.1),rgba(245,158,11,0.08));border:1px solid rgba(239,68,68,0.3);border-radius:20px;padding:24px;margin-bottom:20px;text-align:center;animation:fadeIn 0.4s ease;}
+    .timer-title{font-size:16px;font-weight:800;color:#ef4444;margin-bottom:6px;}
+    .timer-sub{font-size:13px;color:#64748b;margin-bottom:20px;}
+    .timer-digits{display:flex;align-items:center;justify-content:center;gap:12px;}
+    .timer-unit{background:rgba(15,23,42,0.8);border:1px solid rgba(239,68,68,0.2);border-radius:14px;padding:14px 18px;min-width:72px;}
+    .timer-num{font-size:32px;font-weight:900;color:#ef4444;font-variant-numeric:tabular-nums;line-height:1;}
+    .timer-lbl{font-size:11px;color:#64748b;font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;}
+    .timer-sep{font-size:28px;font-weight:900;color:#ef4444;margin-bottom:12px;}
+    .timer-progress{height:4px;background:#1e293b;border-radius:100px;overflow:hidden;margin-top:16px;}
+    .timer-progress-fill{height:100%;background:linear-gradient(90deg,#ef4444,#f59e0b);border-radius:100px;transition:width 1s linear;}
     .calc-btn:hover{transform:translateY(-1px);}
     .gen-btn{width:100%;background:linear-gradient(135deg,#10b981,#059669);border:none;border-radius:12px;padding:13px 0;color:#fff;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter',sans-serif;margin-top:14px;}
     .feat-spinner{width:24px;height:24px;border:2px solid rgba(99,102,241,0.2);border-top:2px solid #6366f1;border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto;}
@@ -660,9 +771,19 @@ export default function App() {
                 <div className="pbadge">💎 PREMIUM</div>
                 <h2 className="ptitle">Unlock Everything</h2>
                 <div className="pprice">₹249 <span>/ 7 days</span></div>
-                <div className="phigh">🎉 After purchase:<br/>✅ <b>Zero ads</b><br/>✅ <b>30 analyses</b> in 7 days<br/>✅ <b>All 8 platforms</b> unlocked</div>
+                <div className="phigh">🎉 After purchase you get:<br/>✅ <b>Zero ads</b> forever<br/>✅ <b>30 analyses</b> in 7 days<br/>✅ <b>All premium tools</b> unlocked instantly<br/>✅ <b>Platform ad guides</b> for all 8 platforms</div>
                 <div className="pflist">
-                  {["📺 Ads on 8+ platforms","🎬 Video Publishing Guides","🔑 Keywords & scripts","💰 Budget tips","🚫 No ads ever"].map(f=><div key={f} className="pfi">{f}</div>)}
+                  {[
+                    "✅ 30 analyses in 7 days (vs 2/day free)",
+                    "✅ Zero ads — completely ad-free",
+                    "💰 Profit Calculator — instant ROI",
+                    "📝 Description Generator — Amazon, Meesho, Flipkart",
+                    "🔥 Trending Products — daily updates",
+                    "⚔️ Competitor Analysis — beat competition",
+                    "📦 Supplier Finder — IndiaMart, AliExpress, Alibaba",
+                    "📺 Run Ads on 8+ platforms — complete guide",
+                    "🎬 Video Publishing steps for YouTube, Instagram, TikTok"
+                  ].map(f=><div key={f} className="pfi">{f}</div>)}
                 </div>
                 <button className="pbtn2" onClick={()=>setShowPayment(true)}>🔓 Unlock — ₹249</button>
                 <button className="mcancel" onClick={()=>setShowPremium(false)}>Maybe later</button>
@@ -673,11 +794,16 @@ export default function App() {
                 <div className="paybox">
                   <div className="payrow"><span>Plan</span><span>Premium 7-day</span></div>
                   <div className="payrow"><span>Amount</span><span style={{color:"#f59e0b",fontWeight:700}}>₹249</span></div>
-                  <div className="payrow"><span>Analyses</span><span style={{color:"#10b981"}}>30</span></div>
-                  <div className="payrow"><span>Ads</span><span style={{color:"#10b981"}}>Zero</span></div>
+                  <div className="payrow"><span>Analyses</span><span style={{color:"#10b981"}}>30 in 7 days</span></div>
+                  <div className="payrow"><span>Ads</span><span style={{color:"#10b981"}}>Zero ads</span></div>
+                  <div className="payrow"><span>Premium Tools</span><span style={{color:"#10b981"}}>All 7 unlocked</span></div>
+                  <div className="payrow"><span>Ad Platforms</span><span style={{color:"#10b981"}}>All 8 guides</span></div>
                 </div>
                 <p className="paynote">⚠️ Add Razorpay for real payments. Demo simulates success.</p>
-                <button className="pbtn2" onClick={activatePremium}>💳 Pay ₹249 (Demo)</button>
+                <button className="pbtn2" onClick={handleRazorpay} style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+                  <svg width="20" height="20" viewBox="0 0 30 30" fill="none"><path d="M14.396 0L0 19.578h9.979L7.242 30l22.758-19.56H19.5L22.25 0z" fill="#072654"/><path d="M14.396 0L0 19.578h9.979L7.242 30l22.758-19.56H19.5L22.25 0z" fill="url(#rzp)"/><defs><linearGradient id="rzp" x1="0" y1="0" x2="30" y2="30"><stop stop-color="#528FF0"/><stop offset="1" stop-color="#072654"/></linearGradient></defs></svg>
+                  Pay ₹249 via Razorpay
+                </button>
                 <button className="mcancel" onClick={()=>setShowPayment(false)}>← Back</button>
               </>
             ) : paymentStep==="processing" ? (
@@ -687,9 +813,14 @@ export default function App() {
                 <div style={{fontSize:64,marginBottom:12}}>🎉</div>
                 <h2 className="ptitle">Premium Activated!</h2>
                 <div className="sfeat">
-                  <div className="sfi">✅ Zero ads</div>
-                  <div className="sfi">✅ 30 analyses (7 days)</div>
-                  <div className="sfi">✅ All 8 platforms unlocked</div>
+                  <div className="sfi">✅ Zero ads — ad-free experience</div>
+                  <div className="sfi">✅ 30 analyses in 7 days</div>
+                  <div className="sfi">✅ Profit Calculator unlocked</div>
+                  <div className="sfi">✅ Description Generator unlocked</div>
+                  <div className="sfi">✅ Trending Products unlocked</div>
+                  <div className="sfi">✅ Competitor Analysis unlocked</div>
+                  <div className="sfi">✅ Supplier Finder unlocked</div>
+                  <div className="sfi">✅ All 8 platform ad guides unlocked</div>
                 </div>
                 <button className="pbtn2" onClick={()=>{setShowPremium(false);setShowPayment(false);setPaymentStep("form");}}>🚀 Start Analyzing →</button>
               </div>
@@ -789,6 +920,37 @@ export default function App() {
               <p className="h-sub">Enter any product and get deep market analysis, viral hooks, keywords and complete platform strategies.</p>
             </div>
 
+            {/* 24HR TIMER - shown when free limit hit */}
+            {timer && curPlan==="free" && (
+              <div className="timer-box fade-in">
+                <div className="timer-title">⏳ Daily Limit Reached</div>
+                <div className="timer-sub">You have used your 2 free analyses today. Next reset in:</div>
+                <div className="timer-digits">
+                  <div className="timer-unit">
+                    <div className="timer-num">{String(timer.hours).padStart(2,"0")}</div>
+                    <div className="timer-lbl">Hours</div>
+                  </div>
+                  <div className="timer-sep">:</div>
+                  <div className="timer-unit">
+                    <div className="timer-num">{String(timer.minutes).padStart(2,"0")}</div>
+                    <div className="timer-lbl">Minutes</div>
+                  </div>
+                  <div className="timer-sep">:</div>
+                  <div className="timer-unit">
+                    <div className="timer-num">{String(timer.seconds).padStart(2,"0")}</div>
+                    <div className="timer-lbl">Seconds</div>
+                  </div>
+                </div>
+                <div className="timer-progress">
+                  <div className="timer-progress-fill" style={{width: Math.max(0, 100 - (timer.total/(24*60*60*1000))*100)+"%"}}/>
+                </div>
+                <div style={{marginTop:16,display:"flex",alignItems:"center",justifyContent:"center",gap:10,flexWrap:"wrap"}}>
+                  <span style={{color:"#64748b",fontSize:13}}>Don&apos;t want to wait?</span>
+                  <button onClick={()=>setShowPremium(true)} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:100,padding:"9px 20px",color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"'Inter',sans-serif"}}>💎 Get Premium ₹249 — Unlimited</button>
+                </div>
+              </div>
+            )}
+
             <div className="icard">
               <h3 className="ctitle">🎯 Analyze a Product</h3>
               <div className="igrid">
@@ -818,7 +980,15 @@ export default function App() {
               <button className="abtn" onClick={runAnalysis} disabled={loading}>
                 🚀 Get AI Analysis {curPlan==="free"&&<span className="anote">· Ad plays first</span>}
               </button>
-              {curPlan==="free"&&<p className="fnote">Free: {usageInfo?.remaining??FREE_DAILY_LIMIT}/{FREE_DAILY_LIMIT} today · <span className="ulink" onClick={()=>setShowPremium(true)}>Upgrade — no ads + 30 analyses →</span></p>}
+              {curPlan==="free"&&(
+                <div style={{marginTop:12,background:"rgba(99,102,241,0.06)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div>
+                    <div style={{fontSize:13,color:"#a5b4fc",fontWeight:600}}>🆓 Free: {usageInfo?.remaining??FREE_DAILY_LIMIT}/{FREE_DAILY_LIMIT} analyses left today</div>
+                    <div style={{fontSize:11,color:"#475569",marginTop:2}}>Premium tools locked · Ads before each analysis · 24hr reset</div>
+                  </div>
+                  <button onClick={()=>setShowPremium(true)} style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:10,padding:"8px 14px",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Inter',sans-serif"}}>💎 ₹249</button>
+                </div>
+              )}
             </div>
 
             {analysis&&(
@@ -915,9 +1085,21 @@ export default function App() {
               ))}
             </div>
 
+            {/* FEATURE LOCK CHECK */}
+            {curPlan==="free"&&(
+              <div style={{background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.25)",borderRadius:16,padding:"16px 20px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:"#f59e0b",marginBottom:4}}>🔒 Premium Tools Locked</div>
+                  <div style={{fontSize:12,color:"#64748b"}}>Profit Calculator, Description Generator, Trending, Competitor & Supplier tools require Premium</div>
+                </div>
+                <button onClick={()=>setShowPremium(true)} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:10,padding:"9px 16px",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Inter',sans-serif"}}>💎 ₹249</button>
+              </div>
+            )}
+
             {/* PROFIT CALCULATOR */}
             {activeTab==="profit"&&(
-              <div className="pcalc fade-in">
+              <div className="pcalc fade-in" style={{position:"relative"}}>
+                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Profit Calculator with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>💰 Profit Calculator</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:20}}>Calculate your real profit, margin & ROI before selling</p>
                 <div className="prow">
@@ -949,7 +1131,8 @@ export default function App() {
 
             {/* DESCRIPTION GENERATOR */}
             {activeTab==="description"&&(
-              <div className="desc-box fade-in">
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Description Generator with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📝 Product Description Generator</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Auto-generate SEO-optimized listings for Amazon, Meesho, Flipkart & more</p>
                 {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
@@ -974,7 +1157,8 @@ export default function App() {
 
             {/* TRENDING PRODUCTS */}
             {activeTab==="trending"&&(
-              <div className="desc-box fade-in">
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Trending Products with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🔥 Trending Products</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>AI-powered trending products in your selected category</p>
                 <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
@@ -1007,7 +1191,8 @@ export default function App() {
 
             {/* COMPETITOR ANALYSIS */}
             {activeTab==="competitor"&&(
-              <div className="desc-box fade-in">
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Competitor Analysis with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>⚔️ Competitor Analysis</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Analyze top competitors — pricing, strengths & weaknesses</p>
                 {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
@@ -1044,7 +1229,8 @@ export default function App() {
 
             {/* SUPPLIER FINDER */}
             {activeTab==="supplier"&&(
-              <div className="desc-box fade-in">
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Supplier Finder with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📦 Supplier Finder</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Find best suppliers with wholesale price, MOQ & sourcing tips</p>
                 {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
