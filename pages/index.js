@@ -86,6 +86,26 @@ export default function App() {
   const [supplierData, setSupplierData] = useState(null);
   const [supplierLoading, setSupplierLoading] = useState(false);
   const adRef = useRef(null);
+  // New feature states
+  const [starterForm, setStarterForm] = useState({budget:"5000", experience:"beginner"});
+  const [starterData, setStarterData] = useState(null);
+  const [starterLoading, setStarterLoading] = useState(false);
+  const [beginnerForm, setBeginnerForm] = useState({budget:"5000", category:"Fashion"});
+  const [beginnerData, setBeginnerData] = useState(null);
+  const [beginnerLoading, setBeginnerLoading] = useState(false);
+  const [investForm, setInvestForm] = useState({buyPrice:"",sellPrice:"",units:"10",platformFee:"10",shippingCost:"60",adBudget:"200"});
+  const [investResult, setInvestResult] = useState(null);
+  const [salesData, setSalesData] = useState(null);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [priceData, setPriceData] = useState(null);
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [inventoryForm, setInventoryForm] = useState({units:"50"});
+  const [inventoryData, setInventoryData] = useState(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [reviewData, setReviewData] = useState(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [nicheData, setNicheData] = useState(null);
+  const [nicheLoading, setNicheLoading] = useState(false);
   const [timer, setTimer] = useState(null); // {hours, minutes, seconds}
   const timerRef = useRef(null);
 
@@ -420,22 +440,37 @@ export default function App() {
 
   const fetchPlatform = async (pid) => {
     const plan = store.get("yyp_plan_"+user?.email) || "free";
-    const isFirstFree = firstAnalysisDone && !store.get("first_plat_used_"+user?.email);
-    if (plan !== "premium" && !isFirstFree) { setShowPremium(true); return; }
-    // Mark first free platform used
-    if (isFirstFree && plan !== "premium") {
-      store.set("first_plat_used_"+user?.email, true);
-      setFirstAnalysisDone(false);
-    }
+    // Allow if premium OR if free with analyses remaining
+    const hasAnalysesLeft = (usageInfo?.remaining||0) > 0 && !timer;
+    if (plan !== "premium" && !hasAnalysesLeft) { setShowPremium(true); return; }
     setSelPlatform(pid);
     if (platData[pid]) return;
     setPlatLoading(true);
     try {
       const pl = PLATFORMS.find(p=>p.id===pid);
-      const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:productForm.name, category:productForm.category, platform:pl.name, mode:"ads_platform" }) });
-      const data = await res.json();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 25000);
+      const res = await fetch("/api/analyze", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ name:productForm.name, category:productForm.category, platform:pl.name, mode:"ads_platform" }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error("API error "+res.status);
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch(pe) { throw new Error("Invalid response"); }
+      if (data.error) throw new Error(data.error);
       setPlatData(prev=>({...prev,[pid]:data}));
-    } catch { showToast("Failed"); }
+    } catch(e) {
+      if (e.name === "AbortError") {
+        showToast("Request timed out. Try again.");
+      } else {
+        showToast("Failed to load. Try again.");
+      }
+      setSelPlatform(null);
+    }
     setPlatLoading(false);
   };
 
@@ -569,6 +604,77 @@ export default function App() {
       await new Promise(r => setTimeout(r, 1000));
       activatePremium(); // Fallback demo
     }
+  };
+
+  // ── NEW FEATURE API CALLS ────────────────────────────────────────────────
+  const apiCall = async (mode, extraBody={}) => {
+    const body = { name: productForm.name||"general", category: productForm.category||"Fashion", platform: productForm.platform||"Amazon", mode, ...extraBody };
+    const res = await fetch("/api/analyze", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    if (!res.ok) throw new Error("API error");
+    return await res.json();
+  };
+
+  const fetchStarter = async () => {
+    setStarterLoading(true);
+    try { setStarterData(await apiCall("starter_guide", starterForm)); } catch { showToast("Failed. Try again."); }
+    setStarterLoading(false);
+  };
+
+  const fetchBeginner = async () => {
+    setBeginnerLoading(true);
+    try { setBeginnerData(await apiCall("beginner_product", beginnerForm)); } catch { showToast("Failed. Try again."); }
+    setBeginnerLoading(false);
+  };
+
+  const calcInvestment = () => {
+    const buy = parseFloat(investForm.buyPrice)||0;
+    const sell = parseFloat(investForm.sellPrice)||0;
+    const units = parseInt(investForm.units)||1;
+    const fee = parseFloat(investForm.platformFee)||10;
+    const ship = parseFloat(investForm.shippingCost)||60;
+    const ads = parseFloat(investForm.adBudget)||200;
+    const totalInvest = (buy * units) + ads;
+    const platformCut = sell * (fee/100);
+    const netPerUnit = sell - buy - platformCut - ship;
+    const totalProfit = (netPerUnit * units) - ads;
+    const roi = totalInvest > 0 ? ((totalProfit/totalInvest)*100).toFixed(1) : 0;
+    const margin = sell > 0 ? ((netPerUnit/sell)*100).toFixed(1) : 0;
+    const breakEven = netPerUnit > 0 ? Math.ceil((ads)/(netPerUnit)) : 0;
+    setInvestResult({ totalInvest:totalInvest.toFixed(0), totalProfit:totalProfit.toFixed(0), netPerUnit:netPerUnit.toFixed(0), roi, margin, breakEven, monthlyProfit:(totalProfit*2).toFixed(0) });
+  };
+
+  const fetchSales = async () => {
+    if (!productForm.name) { showToast("Run product analysis first"); return; }
+    setSalesLoading(true);
+    try { setSalesData(await apiCall("sales_estimator")); } catch { showToast("Failed. Try again."); }
+    setSalesLoading(false);
+  };
+
+  const fetchPrice = async () => {
+    if (!productForm.name) { showToast("Run product analysis first"); return; }
+    setPriceLoading(true);
+    try { setPriceData(await apiCall("price_optimizer")); } catch { showToast("Failed. Try again."); }
+    setPriceLoading(false);
+  };
+
+  const fetchInventory = async () => {
+    if (!productForm.name) { showToast("Run product analysis first"); return; }
+    setInventoryLoading(true);
+    try { setInventoryData(await apiCall("inventory", inventoryForm)); } catch { showToast("Failed. Try again."); }
+    setInventoryLoading(false);
+  };
+
+  const fetchReview = async () => {
+    if (!productForm.name) { showToast("Run product analysis first"); return; }
+    setReviewLoading(true);
+    try { setReviewData(await apiCall("review_analyzer")); } catch { showToast("Failed. Try again."); }
+    setReviewLoading(false);
+  };
+
+  const fetchNiche = async () => {
+    setNicheLoading(true);
+    try { setNicheData(await apiCall("niche_finder")); } catch { showToast("Failed. Try again."); }
+    setNicheLoading(false);
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(null),3500); };
@@ -865,18 +971,21 @@ export default function App() {
                 <div className="pbadge">💎 PREMIUM</div>
                 <h2 className="ptitle">Unlock Everything</h2>
                 <div className="pprice">₹249 <span>/ 7 days</span></div>
-                <div className="phigh">🎉 After purchase you get:<br/>✅ <b>Zero ads</b> forever<br/>✅ <b>30 analyses</b> in 7 days<br/>✅ <b>All premium tools</b> unlocked instantly<br/>✅ <b>Platform ad guides</b> for all 8 platforms</div>
+                <div className="phigh">🎉 Premium vs Free:<br/>📊 <b>30 analyses</b> in 7 days (Free: only 2/day)<br/>⏰ <b>No lockout</b> — analyze anytime<br/>🚫 <b>Zero ads</b> — clean experience<br/>🔓 <b>All 13 tools</b> unlocked permanently</div>
                 <div className="pflist">
                   {[
-                    "✅ 30 analyses in 7 days (vs 2/day free)",
+                    "✅ 30 analyses in 7 days (free = 2/day only)",
                     "✅ Zero ads — completely ad-free",
-                    "💰 Profit Calculator — instant ROI",
-                    "📝 Description Generator — Amazon, Meesho, Flipkart",
-                    "🔥 Trending Products — daily updates",
-                    "⚔️ Competitor Analysis — beat competition",
-                    "📦 Supplier Finder — IndiaMart, AliExpress, Alibaba",
-                    "📺 Run Ads on 8+ platforms — complete guide",
-                    "🎬 Video Publishing steps for YouTube, Instagram, TikTok"
+                    "✅ No 24hr lockout — analyze anytime",
+                    "🎓 Starter Guide — personalized for your budget",
+                    "🔰 Beginner Product Finder — low risk products",
+                    "🧮 Investment Calculator — platform fees + ROI",
+                    "📊 Sales Estimator — monthly revenue forecast",
+                    "🏷️ Price Optimizer — maximum profit pricing",
+                    "📦 Inventory Calculator — stock planning",
+                    "⭐ Review Analyzer — beat competitors",
+                    "🎯 Niche Finder — untapped opportunities",
+                    "📺 Run Ads on 8 platforms — complete guide"
                   ].map(f=><div key={f} className="pfi">{f}</div>)}
                 </div>
                 <button className="pbtn2" onClick={()=>setShowPayment(true)}>🔓 Unlock — ₹249</button>
@@ -1116,7 +1225,7 @@ export default function App() {
                   <div className="pgrid">
                     {PLATFORMS.map(p=>(
                       <div key={p.id} className={"pbtn"+(selPlatform===p.id?" on":"")} onClick={()=>fetchPlatform(p.id)} style={{borderColor:selPlatform===p.id?p.color:undefined}}>
-                        {curPlan==="free"&&!firstAnalysisDone&&<div className="plk">🔒</div>}
+                        {curPlan==="free"&&(!firstAnalysisDone)&&(usageInfo?.remaining<=0||timer)&&<div className="plk">🔒</div>}
                         {curPlan==="free"&&firstAnalysisDone&&<div className="plk" style={{color:"#10b981"}}>🎁</div>}
                         <div className="plogo" dangerouslySetInnerHTML={{__html:p.logo}}/>
                         <div className="pname">{p.name}</div>
@@ -1144,7 +1253,7 @@ export default function App() {
                       </>);})():null}
                     </div>
                   )}
-                  {curPlan==="free"&&!firstAnalysisDone&&(
+                  {curPlan==="free"&&(!firstAnalysisDone)&&(usageInfo?.remaining<=0||timer)&&(
                     <div className="lkbox">
                       <div className="lkemoji">🔒</div>
                       <div className="lktitle">Premium Feature</div>
@@ -1179,21 +1288,29 @@ export default function App() {
               ))}
             </div>
 
-            {/* FEATURE LOCK CHECK */}
-            {curPlan==="free"&&(
-              <div style={{background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.25)",borderRadius:16,padding:"16px 20px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+            {/* FEATURE LOCK CHECK - only show when limit hit */}
+            {curPlan==="free"&&(usageInfo?.remaining<=0||timer)&&(
+              <div style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:16,padding:"16px 20px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
                 <div>
-                  <div style={{fontWeight:700,fontSize:14,color:"#f59e0b",marginBottom:4}}>🔒 Premium Tools Locked</div>
-                  <div style={{fontSize:12,color:"#64748b"}}>Profit Calculator, Description Generator, Trending, Competitor & Supplier tools require Premium</div>
+                  <div style={{fontWeight:700,fontSize:14,color:"#ef4444",marginBottom:4}}>🔒 All Tools Locked — Daily Limit Reached</div>
+                  <div style={{fontSize:12,color:"#64748b"}}>2 free analyses used. Wait 24hrs or upgrade to Premium for unlimited access.</div>
                 </div>
                 <button onClick={()=>setShowPremium(true)} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:10,padding:"9px 16px",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'Inter',sans-serif"}}>💎 ₹249</button>
+              </div>
+            )}
+            {curPlan==="free"&&usageInfo?.remaining>0&&!timer&&(
+              <div style={{background:"rgba(16,185,129,0.06)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:16,padding:"12px 20px",marginBottom:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:"#10b981",marginBottom:2}}>✅ All Tools Unlocked — {usageInfo?.remaining} Analyses Remaining</div>
+                  <div style={{fontSize:12,color:"#64748b"}}>Use all tools freely. Resets after 24hrs.</div>
+                </div>
               </div>
             )}
 
             {/* PROFIT CALCULATOR */}
             {activeTab==="profit"&&(
               <div className="pcalc fade-in" style={{position:"relative"}}>
-                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#94a3b8",fontSize:13,marginBottom:18,textAlign:"center",padding:"0 24px"}}>Unlock Profit Calculator with Premium ₹249</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 6px 20px rgba(245,158,11,0.4)"}}>💎 Unlock for ₹249</button></div>}
+                {(curPlan==="free"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#94a3b8",fontSize:13,marginBottom:18,textAlign:"center",padding:"0 24px"}}>Unlock Profit Calculator with Premium ₹249</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif",boxShadow:"0 6px 20px rgba(245,158,11,0.4)"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>💰 Profit Calculator</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:20}}>Calculate your real profit, margin & ROI before selling</p>
                 <div className="prow">
@@ -1226,11 +1343,11 @@ export default function App() {
             {/* DESCRIPTION GENERATOR */}
             {activeTab==="description"&&(
               <div className="desc-box fade-in" style={{position:"relative"}}>
-                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Description Generator with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
+                {(curPlan==="free"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Description Generator with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📝 Product Description Generator</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Auto-generate SEO-optimized listings for Amazon, Meesho, Flipkart & more</p>
                 {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
-                <button className="gen-btn" onClick={generateDesc} disabled={descLoading||!productForm.name}>
+                <button className="gen-btn" onClick={generateDesc} disabled={descLoading||!productForm.name||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>
                   {descLoading?"⏳ Generating...":"✨ Generate Descriptions"}
                 </button>
                 {descLoading&&<div className="feat-spinner"/>}
@@ -1252,7 +1369,7 @@ export default function App() {
             {/* TRENDING PRODUCTS */}
             {activeTab==="trending"&&(
               <div className="desc-box fade-in" style={{position:"relative"}}>
-                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Trending Products with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
+                {(curPlan==="free"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Trending Products with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🔥 Trending Products</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>AI-powered trending products in your selected category</p>
                 <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
@@ -1260,7 +1377,7 @@ export default function App() {
                     <option value="">Select Category</option>
                     {["Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Fashion","Pet Supplies","Toys & Games","Health & Wellness","Outdoor & Sports"].map(c=><option key={c}>{c}</option>)}
                   </select>
-                  <button className="calc-btn" onClick={fetchTrending} disabled={trendingLoading}>
+                  <button className="calc-btn" onClick={fetchTrending} disabled={trendingLoading||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>
                     {trendingLoading?"⏳ Loading...":"🔥 Get Trending"}
                   </button>
                 </div>
@@ -1286,11 +1403,11 @@ export default function App() {
             {/* COMPETITOR ANALYSIS */}
             {activeTab==="competitor"&&(
               <div className="desc-box fade-in" style={{position:"relative"}}>
-                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Competitor Analysis with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
+                {(curPlan==="free"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Competitor Analysis with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>⚔️ Competitor Analysis</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Analyze top competitors — pricing, strengths & weaknesses</p>
                 {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
-                <button className="calc-btn" onClick={fetchCompetitor} disabled={competitorLoading||!productForm.name}>
+                <button className="calc-btn" onClick={fetchCompetitor} disabled={competitorLoading||!productForm.name||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>
                   {competitorLoading?"⏳ Analyzing...":"🔍 Analyze Competitors"}
                 </button>
                 {competitorLoading&&<div className="feat-spinner"/>}
@@ -1324,11 +1441,11 @@ export default function App() {
             {/* SUPPLIER FINDER */}
             {activeTab==="supplier"&&(
               <div className="desc-box fade-in" style={{position:"relative"}}>
-                {curPlan==="free"&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Supplier Finder with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
+                {(curPlan==="free"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.7)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(4px)"}}><div style={{fontSize:44,marginBottom:10}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:6}}>Premium Feature</div><div style={{color:"#64748b",fontSize:13,marginBottom:16,textAlign:"center",padding:"0 20px"}}>Unlock Supplier Finder with Premium</div><button style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 28px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer"}}>💎 Unlock for ₹249</button></div>}
                 <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📦 Supplier Finder</h3>
                 <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Find best suppliers with wholesale price, MOQ & sourcing tips</p>
                 {!productForm.name&&<div className="ebanner">⚠️ First fill Product Name above and run analysis</div>}
-                <button className="calc-btn" style={{background:"linear-gradient(135deg,#10b981,#059669)"}} onClick={fetchSupplier} disabled={supplierLoading||!productForm.name}>
+                <button className="calc-btn" style={{background:"linear-gradient(135deg,#10b981,#059669)"}} onClick={fetchSupplier} disabled={supplierLoading||!productForm.name||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>
                   {supplierLoading?"⏳ Finding...":"🔍 Find Suppliers"}
                 </button>
                 {supplierLoading&&<div className="feat-spinner"/>}
@@ -1353,6 +1470,291 @@ export default function App() {
               </div>
             )}
           </div>
+
+            {/* STARTER GUIDE */}
+            {activeTab==="starter"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🎓 Ecommerce Starter Guide</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Personalized step-by-step guide for beginners</p>
+                <div className="prow">
+                  <div className="pfield"><label>Your Budget (₹)</label><input type="number" placeholder="5000" value={starterForm.budget} onChange={e=>setStarterForm({...starterForm,budget:e.target.value})}/></div>
+                  <div className="pfield"><label>Experience Level</label>
+                    <select style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:10,padding:"11px 14px",color:"#f8fafc",fontFamily:"Inter,sans-serif"}} value={starterForm.experience} onChange={e=>setStarterForm({...starterForm,experience:e.target.value})}>
+                      <option value="beginner">Complete Beginner</option>
+                      <option value="some">Some Experience</option>
+                      <option value="intermediate">Intermediate</option>
+                    </select>
+                  </div>
+                </div>
+                <button className="gen-btn" onClick={fetchStarter} disabled={starterLoading||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>{starterLoading?"⏳ Generating guide...":"🎓 Generate My Starter Guide"}</button>
+                {starterLoading&&<div className="feat-spinner"/>}
+                {starterData&&!starterLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    {starterData.platform_recommendation&&<div style={{background:"rgba(16,185,129,0.08)",border:"1px solid rgba(16,185,129,0.2)",borderRadius:14,padding:16,marginBottom:16}}>
+                      <div style={{fontWeight:800,fontSize:15,color:"#10b981",marginBottom:6}}>✅ Recommended Platform: {starterData.platform_recommendation.name}</div>
+                      <div style={{color:"#94a3b8",fontSize:13,marginBottom:4}}>{starterData.platform_recommendation.why}</div>
+                      <div style={{color:"#f59e0b",fontSize:12,fontWeight:600}}>Commission: {starterData.platform_recommendation.commission} · Difficulty: {starterData.platform_recommendation.difficulty}</div>
+                    </div>}
+                    {starterData.steps?.map((s,i)=>(
+                      <div key={i} className="comp-card" style={{marginBottom:12}}>
+                        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+                          <div style={{width:32,height:32,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:"#fff",flexShrink:0}}>{s.step}</div>
+                          <div style={{fontWeight:700,fontSize:15,color:"#e2e8f0"}}>{s.title}</div>
+                        </div>
+                        <div style={{color:"#94a3b8",fontSize:13,lineHeight:1.6,marginBottom:8}}>{s.description}</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                          <span style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.2)",color:"#a5b4fc",borderRadius:8,padding:"3px 10px",fontSize:12}}>⏱ {s.time}</span>
+                          <span style={{background:"rgba(16,185,129,0.1)",border:"1px solid rgba(16,185,129,0.2)",color:"#10b981",borderRadius:8,padding:"3px 10px",fontSize:12}}>💰 {s.cost}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {starterData.first_product&&<div style={{background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:14,padding:16,marginBottom:12}}>
+                      <div style={{fontWeight:700,color:"#f59e0b",marginBottom:4}}>🌟 Your First Product: {starterData.first_product.name}</div>
+                      <div style={{color:"#94a3b8",fontSize:13}}>{starterData.first_product.reason}</div>
+                      <div style={{color:"#10b981",fontSize:13,fontWeight:600,marginTop:4}}>Expected profit: {starterData.first_product.expected_profit}</div>
+                    </div>}
+                    {starterData.mistakes?.length>0&&<div style={{background:"rgba(239,68,68,0.06)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:14,padding:16}}>
+                      <div style={{fontWeight:700,color:"#ef4444",marginBottom:8}}>⚠️ Common Mistakes to Avoid:</div>
+                      {starterData.mistakes.map((m,i)=><div key={i} style={{color:"#94a3b8",fontSize:13,padding:"4px 0",display:"flex",gap:8}}><span>❌</span><span>{m}</span></div>)}
+                    </div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* BEGINNER PRODUCT FINDER */}
+            {activeTab==="beginner"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🔰 Beginner Product Finder</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Low risk, high profit products for beginners</p>
+                <div className="prow">
+                  <div className="pfield"><label>Your Budget (₹)</label><input type="number" placeholder="5000" value={beginnerForm.budget} onChange={e=>setBeginnerForm({...beginnerForm,budget:e.target.value})}/></div>
+                  <div className="pfield"><label>Category</label>
+                    <select style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:10,padding:"11px 14px",color:"#f8fafc",fontFamily:"Inter,sans-serif"}} value={beginnerForm.category} onChange={e=>setBeginnerForm({...beginnerForm,category:e.target.value})}>
+                      {["Fashion","Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Pet Supplies","Toys & Games","Health & Wellness"].map(c=><option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <button className="gen-btn" onClick={fetchBeginner} disabled={beginnerLoading||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>{beginnerLoading?"⏳ Finding products...":"🔰 Find Beginner Products"}</button>
+                {beginnerLoading&&<div className="feat-spinner"/>}
+                {beginnerData&&!beginnerLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    {beginnerData.products?.map((p,i)=>(
+                      <div key={i} className="comp-card" style={{marginBottom:12}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,flexWrap:"wrap",gap:8}}>
+                          <div style={{fontWeight:700,fontSize:15,color:"#e2e8f0"}}>#{i+1} {p.name}</div>
+                          <div style={{display:"flex",gap:6}}>
+                            <span style={{background:p.risk==="Low"?"rgba(16,185,129,0.1)":"rgba(245,158,11,0.1)",border:`1px solid ${p.risk==="Low"?"rgba(16,185,129,0.3)":"rgba(245,158,11,0.3)"}`,color:p.risk==="Low"?"#10b981":"#f59e0b",borderRadius:8,padding:"3px 10px",fontSize:12,fontWeight:600}}>Risk: {p.risk}</span>
+                            <span style={{background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.2)",color:"#a5b4fc",borderRadius:8,padding:"3px 10px",fontSize:12,fontWeight:600}}>Demand: {p.demand}</span>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                          <span style={{color:"#ef4444",fontSize:13,fontWeight:600}}>Buy: {p.buy_price}</span>
+                          <span style={{color:"#94a3b8"}}>→</span>
+                          <span style={{color:"#10b981",fontSize:13,fontWeight:600}}>Sell: {p.sell_price}</span>
+                          <span style={{color:"#f59e0b",fontSize:13,fontWeight:700}}>💰 Profit: {p.profit_per_unit}/unit</span>
+                        </div>
+                        <div style={{color:"#94a3b8",fontSize:13,marginBottom:8}}>{p.why_good}</div>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                          <span style={{background:"rgba(99,102,241,0.1)",color:"#a5b4fc",borderRadius:8,padding:"3px 10px",fontSize:12}}>📦 {p.platform}</span>
+                          <span style={{background:"rgba(16,185,129,0.1)",color:"#10b981",borderRadius:8,padding:"3px 10px",fontSize:12}}>🏭 {p.suppliers}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* INVESTMENT CALCULATOR */}
+            {activeTab==="investment"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🧮 Investment Calculator</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Calculate exact ROI including platform fees & shipping</p>
+                <div className="prow">
+                  <div className="pfield"><label>Buying Price (₹)</label><input type="number" placeholder="150" value={investForm.buyPrice} onChange={e=>setInvestForm({...investForm,buyPrice:e.target.value})}/></div>
+                  <div className="pfield"><label>Selling Price (₹)</label><input type="number" placeholder="499" value={investForm.sellPrice} onChange={e=>setInvestForm({...investForm,sellPrice:e.target.value})}/></div>
+                  <div className="pfield"><label>Units to Sell</label><input type="number" placeholder="10" value={investForm.units} onChange={e=>setInvestForm({...investForm,units:e.target.value})}/></div>
+                  <div className="pfield"><label>Platform Fee (%)</label><input type="number" placeholder="10" value={investForm.platformFee} onChange={e=>setInvestForm({...investForm,platformFee:e.target.value})}/></div>
+                  <div className="pfield"><label>Shipping Cost (₹)</label><input type="number" placeholder="60" value={investForm.shippingCost} onChange={e=>setInvestForm({...investForm,shippingCost:e.target.value})}/></div>
+                  <div className="pfield"><label>Ad Budget (₹)</label><input type="number" placeholder="200" value={investForm.adBudget} onChange={e=>setInvestForm({...investForm,adBudget:e.target.value})}/></div>
+                </div>
+                <button className="calc-btn" style={{width:"100%"}} onClick={calcInvestment}>🧮 Calculate Investment</button>
+                {investResult&&(
+                  <div className="presult fade-in">
+                    {[
+                      {l:"Total Investment",v:"₹"+investResult.totalInvest,c:"#94a3b8"},
+                      {l:"Total Profit",v:"₹"+investResult.totalProfit,c:parseFloat(investResult.totalProfit)>0?"#10b981":"#ef4444"},
+                      {l:"Profit per Unit",v:"₹"+investResult.netPerUnit,c:"#a5b4fc"},
+                      {l:"ROI",v:investResult.roi+"%",c:"#f59e0b"},
+                      {l:"Profit Margin",v:investResult.margin+"%",c:"#6366f1"},
+                      {l:"Break Even Units",v:investResult.breakEven+" units",c:"#94a3b8"},
+                    ].map(r=>(
+                      <div key={r.l} className="pres-card"><div className="pres-lbl">{r.l}</div><div className="pres-val" style={{color:r.c,fontSize:18}}>{r.v}</div></div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SALES ESTIMATOR */}
+            {activeTab==="sales"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📊 Sales Estimator</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Estimate monthly sales & revenue for {productForm.name||"your product"}</p>
+                {!productForm.name&&<div className="ebanner">⚠️ Please run product analysis first above</div>}
+                <button className="gen-btn" onClick={fetchSales} disabled={salesLoading||!productForm.name||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>{salesLoading?"⏳ Estimating...":"📊 Estimate Sales"}</button>
+                {salesLoading&&<div className="feat-spinner"/>}
+                {salesData&&!salesLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    <div className="presult" style={{marginBottom:16}}>
+                      {[
+                        {l:"Low Estimate",v:salesData.monthly_units?.low+" units",c:"#ef4444"},
+                        {l:"Avg Estimate",v:salesData.monthly_units?.medium+" units",c:"#f59e0b"},
+                        {l:"High Estimate",v:salesData.monthly_units?.high+" units",c:"#10b981"},
+                      ].map(r=><div key={r.l} className="pres-card"><div className="pres-lbl">{r.l}</div><div className="pres-val" style={{color:r.c,fontSize:20}}>{r.v}</div></div>)}
+                    </div>
+                    <div className="presult" style={{marginBottom:16}}>
+                      {[
+                        {l:"Low Revenue",v:salesData.monthly_revenue?.low,c:"#ef4444"},
+                        {l:"Avg Revenue",v:salesData.monthly_revenue?.medium,c:"#f59e0b"},
+                        {l:"High Revenue",v:salesData.monthly_revenue?.high,c:"#10b981"},
+                      ].map(r=><div key={r.l} className="pres-card"><div className="pres-lbl">{r.l}</div><div className="pres-val" style={{color:r.c,fontSize:16}}>{r.v}</div></div>)}
+                    </div>
+                    {salesData.best_months?.length>0&&<div className="gcard" style={{marginBottom:12}}><div className="gct">🌟 Best Months to Sell</div><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{salesData.best_months.map((m,i)=><span key={i} className="trend-chip">{m}</span>)}</div></div>}
+                    {salesData.tips?.length>0&&<div className="gcard"><div className="gct">💡 Tips to Increase Sales</div>{salesData.tips.map((t,i)=><div key={i} style={{color:"#94a3b8",fontSize:13,padding:"5px 0",display:"flex",gap:8}}><span style={{color:"#10b981"}}>✓</span><span>{t}</span></div>)}</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* PRICE OPTIMIZER */}
+            {activeTab==="price"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🏷️ Price Optimizer</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Find the perfect selling price to maximize profit</p>
+                {!productForm.name&&<div className="ebanner">⚠️ Please run product analysis first above</div>}
+                <button className="gen-btn" style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)"}} onClick={fetchPrice} disabled={priceLoading||!productForm.name||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>{priceLoading?"⏳ Optimizing...":"🏷️ Optimize Price"}</button>
+                {priceLoading&&<div className="feat-spinner"/>}
+                {priceData&&!priceLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    <div style={{background:"linear-gradient(135deg,rgba(16,185,129,0.1),rgba(6,95,70,0.1))",border:"1px solid rgba(16,185,129,0.3)",borderRadius:16,padding:20,textAlign:"center",marginBottom:16}}>
+                      <div style={{fontSize:13,color:"#64748b",marginBottom:4}}>Recommended Price</div>
+                      <div style={{fontSize:36,fontWeight:900,color:"#10b981"}}>{priceData.recommended_price}</div>
+                      <div style={{fontSize:12,color:"#475569",marginTop:4}}>Sweet spot: {priceData.price_range?.sweet_spot}</div>
+                    </div>
+                    {priceData.competitor_prices?.length>0&&<div className="gcard" style={{marginBottom:12}}>
+                      <div className="gct">⚔️ Competitor Prices</div>
+                      {priceData.competitor_prices.map((c,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.05)",color:"#94a3b8",fontSize:13}}><span>{c.seller}</span><span style={{color:"#f59e0b",fontWeight:600}}>{c.price}</span></div>)}
+                    </div>}
+                    {priceData.psychological_tricks?.length>0&&<div className="gcard">
+                      <div className="gct">🧠 Pricing Psychology Tips</div>
+                      {priceData.psychological_tricks.map((t,i)=><div key={i} style={{color:"#94a3b8",fontSize:13,padding:"4px 0",display:"flex",gap:8}}><span style={{color:"#a5b4fc"}}>→</span><span>{t}</span></div>)}
+                    </div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* INVENTORY CALCULATOR */}
+            {activeTab==="inventory"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>📦 Inventory Calculator</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Plan your stock to never run out or overstock</p>
+                {!productForm.name&&<div className="ebanner">⚠️ Please run product analysis first above</div>}
+                <div className="prow"><div className="pfield"><label>Starting Units</label><input type="number" placeholder="50" value={inventoryForm.units} onChange={e=>setInventoryForm({units:e.target.value})}/></div></div>
+                <button className="gen-btn" style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}} onClick={fetchInventory} disabled={inventoryLoading||!productForm.name||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>{inventoryLoading?"⏳ Calculating...":"📦 Calculate Inventory"}</button>
+                {inventoryLoading&&<div className="feat-spinner"/>}
+                {inventoryData&&!inventoryLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    <div className="presult" style={{marginBottom:16}}>
+                      {[
+                        {l:"Starter Stock",v:inventoryData.recommended_stock?.starter,c:"#10b981"},
+                        {l:"Safe Stock",v:inventoryData.recommended_stock?.safe,c:"#f59e0b"},
+                        {l:"Reorder At",v:inventoryData.reorder_point,c:"#ef4444"},
+                      ].map(r=><div key={r.l} className="pres-card"><div className="pres-lbl">{r.l}</div><div className="pres-val" style={{color:r.c,fontSize:16}}>{r.v}</div></div>)}
+                    </div>
+                    <div className="gcard" style={{marginBottom:12}}><div className="gct">📋 Storage Info</div>
+                      <div style={{color:"#94a3b8",fontSize:13}}><span style={{color:"#f59e0b"}}>Storage Cost: </span>{inventoryData.storage_cost}</div>
+                      <div style={{color:"#94a3b8",fontSize:13,marginTop:4}}><span style={{color:"#a5b4fc"}}>Stock Duration: </span>{inventoryData.turnover_days}</div>
+                      <div style={{color:"#94a3b8",fontSize:13,marginTop:4}}><span style={{color:"#ef4444"}}>Main Risk: </span>{inventoryData.risk}</div>
+                    </div>
+                    {inventoryData.tips?.length>0&&<div className="gcard"><div className="gct">💡 Inventory Tips</div>{inventoryData.tips.map((t,i)=><div key={i} style={{color:"#94a3b8",fontSize:13,padding:"4px 0",display:"flex",gap:8}}><span style={{color:"#10b981"}}>✓</span><span>{t}</span></div>)}</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* REVIEW ANALYZER */}
+            {activeTab==="review"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>⭐ Review Analyzer</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>What customers love & hate about similar products</p>
+                {!productForm.name&&<div className="ebanner">⚠️ Please run product analysis first above</div>}
+                <button className="gen-btn" style={{background:"linear-gradient(135deg,#f59e0b,#f97316)"}} onClick={fetchReview} disabled={reviewLoading||!productForm.name||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>{reviewLoading?"⏳ Analyzing reviews...":"⭐ Analyze Reviews"}</button>
+                {reviewLoading&&<div className="feat-spinner"/>}
+                {reviewData&&!reviewLoading&&(
+                  <div style={{marginTop:20}} className="fade-in">
+                    <div style={{background:"rgba(99,102,241,0.08)",border:"1px solid rgba(99,102,241,0.2)",borderRadius:14,padding:16,textAlign:"center",marginBottom:16}}>
+                      <div style={{fontSize:13,color:"#64748b"}}>Sentiment Score</div>
+                      <div style={{fontSize:32,fontWeight:900,color:"#6366f1"}}>{reviewData.sentiment_score}</div>
+                    </div>
+                    <div className="comp-row" style={{marginBottom:12}}>
+                      <div className="comp-box">
+                        <div className="comp-box-title" style={{color:"#10b981"}}>❤️ What They Love</div>
+                        {reviewData.what_customers_love?.map((l,i)=><div key={i} className="comp-point"><span style={{color:"#10b981"}}>+</span><span>{l}</span></div>)}
+                      </div>
+                      <div className="comp-box">
+                        <div className="comp-box-title" style={{color:"#ef4444"}}>😠 Common Complaints</div>
+                        {reviewData.common_complaints?.map((c,i)=><div key={i} className="comp-point"><span style={{color:"#ef4444"}}>-</span><span>{c}</span></div>)}
+                      </div>
+                    </div>
+                    {reviewData.opportunities?.length>0&&<div className="gcard" style={{marginBottom:12}}><div className="gct">💡 Your Opportunities</div>{reviewData.opportunities.map((o,i)=><div key={i} style={{color:"#94a3b8",fontSize:13,padding:"4px 0",display:"flex",gap:8}}><span style={{color:"#a5b4fc"}}>→</span><span>{o}</span></div>)}</div>}
+                    {reviewData.product_improvements?.length>0&&<div className="gcard"><div className="gct">🔧 Product Improvements</div>{reviewData.product_improvements.map((p,i)=><div key={i} style={{color:"#94a3b8",fontSize:13,padding:"4px 0",display:"flex",gap:8}}><span style={{color:"#f59e0b"}}>✦</span><span>{p}</span></div>)}</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* NICHE FINDER */}
+            {activeTab==="niche"&&(
+              <div className="desc-box fade-in" style={{position:"relative"}}>
+                {(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))&&<div onClick={()=>setShowPremium(true)} style={{position:"absolute",inset:0,background:"rgba(2,8,23,0.85)",borderRadius:20,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,backdropFilter:"blur(6px)",minHeight:200}}><div style={{fontSize:48,marginBottom:12}}>🔒</div><div style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>Premium Feature</div><button onClick={(e)=>{e.stopPropagation();setShowPremium(true);}} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:12,padding:"12px 32px",color:"#fff",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Unlock for ₹249</button></div>}
+                <h3 style={{fontWeight:800,fontSize:18,marginBottom:6,color:"#f8fafc"}}>🎯 Niche Finder</h3>
+                <p style={{color:"#64748b",fontSize:13,marginBottom:16}}>Untapped profitable niches in Indian market</p>
+                <button className="gen-btn" style={{background:"linear-gradient(135deg,#a855f7,#7c3aed)"}} onClick={fetchNiche} disabled={nicheLoading||(curPlan!=="premium"&&(usageInfo?.remaining<=0||timer))}>{nicheLoading?"⏳ Finding niches...":"🎯 Find Untapped Niches"}</button>
+                {nicheLoading&&<div className="feat-spinner"/>}
+                {nicheData&&!nicheLoading&&(
+                  <div className="trend-grid fade-in" style={{marginTop:20}}>
+                    {nicheData.niches?.map((n,i)=>(
+                      <div key={i} className="trend-card">
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                          <div className="trend-rank">{i+1}</div>
+                          <div style={{fontWeight:700,fontSize:14,color:"#e2e8f0"}}>{n.name}</div>
+                        </div>
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                          <span style={{background:"rgba(16,185,129,0.1)",color:"#10b981",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:600}}>Competition: {n.competition}</span>
+                          <span style={{background:"rgba(245,158,11,0.1)",color:"#f59e0b",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:600}}>Margin: {n.profit_margin}</span>
+                        </div>
+                        <div style={{color:"#64748b",fontSize:12,marginBottom:8}}>{n.why_untapped}</div>
+                        <div style={{color:"#a5b4fc",fontSize:12,marginBottom:6}}>💰 Investment: {n.investment}</div>
+                        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                          {n.example_products?.map((p,j)=><span key={j} className="trend-chip">{p}</span>)}
+                        </div>
+                        <div style={{marginTop:8,fontSize:11,color:n.trend==="Growing"?"#10b981":"#f59e0b",fontWeight:600}}>📈 {n.trend}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
           <footer>🧠 Product Analyzer · Built with AI · © YesYouPro</footer>
         </div>
