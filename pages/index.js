@@ -14,6 +14,102 @@ const FB = {
   appId: "1:455406578867:web:fc5a2b6a00af996bc114c6"
 };
 
+// ALL CATEGORIES WITH ICONS
+const CATEGORIES = [
+  // Physical
+  { id:"Electronics", label:"Electronics", icon:"💻", type:"physical" },
+  { id:"Beauty & Skincare", label:"Beauty", icon:"💄", type:"physical" },
+  { id:"Home & Kitchen", label:"Home & Kitchen", icon:"🏠", type:"physical" },
+  { id:"Fitness", label:"Fitness", icon:"💪", type:"physical" },
+  { id:"Fashion", label:"Fashion", icon:"👗", type:"physical" },
+  { id:"Pet Supplies", label:"Pet Supplies", icon:"🐾", type:"physical" },
+  { id:"Toys & Games", label:"Toys & Games", icon:"🎮", type:"physical" },
+  { id:"Health & Wellness", label:"Health", icon:"❤️", type:"physical" },
+  { id:"Outdoor & Sports", label:"Outdoor", icon:"⛺", type:"physical" },
+  { id:"Food & Beverages", label:"Food & Drinks", icon:"🍔", type:"physical" },
+  { id:"Automotive", label:"Automotive", icon:"🚗", type:"physical" },
+  { id:"Books & Education", label:"Books", icon:"📚", type:"physical" },
+  { id:"Music & Audio", label:"Music", icon:"🎵", type:"physical" },
+  { id:"Art & Crafts", label:"Art & Crafts", icon:"🎨", type:"physical" },
+  { id:"Jewelry & Accessories", label:"Jewelry", icon:"💍", type:"physical" },
+  { id:"Baby & Kids", label:"Baby & Kids", icon:"👶", type:"physical" },
+  { id:"Office Supplies", label:"Office", icon:"🗂️", type:"physical" },
+  { id:"Tools & Hardware", label:"Tools", icon:"🔧", type:"physical" },
+  { id:"Garden & Plants", label:"Garden", icon:"🌱", type:"physical" },
+  { id:"Travel & Luggage", label:"Travel", icon:"✈️", type:"physical" },
+  // Digital / Virtual
+  { id:"Digital Products", label:"Digital Products", icon:"📦", type:"digital" },
+  { id:"Mobile Apps", label:"Mobile Apps", icon:"📱", type:"digital" },
+  { id:"PC / Console Games", label:"Games", icon:"🕹️", type:"digital" },
+  { id:"Online Courses", label:"Courses", icon:"🎓", type:"digital" },
+  { id:"Software & SaaS", label:"Software/SaaS", icon:"💿", type:"digital" },
+  { id:"Website / Blog", label:"Website/Blog", icon:"🌐", type:"digital" },
+  { id:"YouTube Channel", label:"YouTube", icon:"📺", type:"digital" },
+  { id:"Instagram Page", label:"Instagram Page", icon:"📸", type:"digital" },
+  { id:"Podcast", label:"Podcast", icon:"🎙️", type:"digital" },
+  { id:"NFT & Crypto", label:"NFT & Crypto", icon:"🖼️", type:"digital" },
+  { id:"Ebooks & Templates", label:"Ebooks", icon:"📄", type:"digital" },
+  { id:"Freelance Services", label:"Freelancing", icon:"🛠️", type:"digital" },
+  { id:"Social Media Account", label:"Social Media", icon:"👥", type:"digital" },
+  { id:"Subscription Box", label:"Subscription", icon:"📬", type:"digital" },
+  { id:"Print on Demand", label:"Print on Demand", icon:"🖨️", type:"digital" },
+  { id:"Dropshipping", label:"Dropshipping", icon:"🚚", type:"digital" },
+  { id:"Affiliate Marketing", label:"Affiliate", icon:"🔗", type:"digital" },
+  { id:"Online Community", label:"Community", icon:"💬", type:"digital" },
+  { id:"Any Other", label:"Other", icon:"✨", type:"other" },
+];
+
+// ALL PLATFORMS WITH ICONS
+const ALL_PLATFORMS = [
+  // Ecommerce
+  { id:"Amazon", label:"Amazon", icon:"📦", color:"#f59e0b", group:"🛒 Ecommerce" },
+  { id:"Flipkart", label:"Flipkart", icon:"⚡", color:"#2874f0", group:"🛒 Ecommerce" },
+  { id:"Meesho", label:"Meesho", icon:"🌸", color:"#e91e8c", group:"🛒 Ecommerce" },
+  { id:"Shopify", label:"Shopify", icon:"🛒", color:"#96bf48", group:"🛒 Ecommerce" },
+  { id:"WooCommerce", label:"WooCommerce", icon:"🌐", color:"#7f54b3", group:"🛒 Ecommerce" },
+  { id:"Etsy", label:"Etsy", icon:"🎨", color:"#f56400", group:"🛒 Ecommerce" },
+  { id:"Nykaa", label:"Nykaa", icon:"💄", color:"#fc2779", group:"🛒 Ecommerce" },
+  { id:"Myntra", label:"Myntra", icon:"👗", color:"#ff3f6c", group:"🛒 Ecommerce" },
+  { id:"Ajio", label:"Ajio", icon:"👠", color:"#ed1c24", group:"🛒 Ecommerce" },
+  { id:"Snapdeal", label:"Snapdeal", icon:"🏷️", color:"#e40000", group:"🛒 Ecommerce" },
+  { id:"JioMart", label:"JioMart", icon:"🛍️", color:"#003087", group:"🛒 Ecommerce" },
+  { id:"IndiaMART", label:"IndiaMART", icon:"🏭", color:"#0077b5", group:"🛒 Ecommerce" },
+  // Social Media
+  { id:"Instagram", label:"Instagram", icon:"📸", color:"#e1306c", group:"📱 Social Media" },
+  { id:"TikTok Shop", label:"TikTok", icon:"🎵", color:"#010101", group:"📱 Social Media" },
+  { id:"Facebook", label:"Facebook", icon:"👤", color:"#1877f2", group:"📱 Social Media" },
+  { id:"YouTube", label:"YouTube", icon:"📺", color:"#ff0000", group:"📱 Social Media" },
+  { id:"Pinterest", label:"Pinterest", icon:"📌", color:"#e60023", group:"📱 Social Media" },
+  { id:"Snapchat", label:"Snapchat", icon:"👻", color:"#fffc00", group:"📱 Social Media" },
+  { id:"X (Twitter)", label:"X/Twitter", icon:"🐦", color:"#000000", group:"📱 Social Media" },
+  { id:"LinkedIn", label:"LinkedIn", icon:"💼", color:"#0077b5", group:"📱 Social Media" },
+  { id:"Telegram", label:"Telegram", icon:"✈️", color:"#0088cc", group:"📱 Social Media" },
+  { id:"WhatsApp Business", label:"WhatsApp", icon:"💬", color:"#25d366", group:"📱 Social Media" },
+  { id:"Discord", label:"Discord", icon:"🎮", color:"#5865f2", group:"📱 Social Media" },
+  { id:"Reddit", label:"Reddit", icon:"🔴", color:"#ff4500", group:"📱 Social Media" },
+  { id:"Quora", label:"Quora", icon:"❓", color:"#a82400", group:"📱 Social Media" },
+  // App Stores
+  { id:"Google Play Store", label:"Play Store", icon:"▶️", color:"#01875f", group:"📲 App Stores" },
+  { id:"Apple App Store", label:"App Store", icon:"🍎", color:"#0071e3", group:"📲 App Stores" },
+  { id:"Steam", label:"Steam", icon:"🎮", color:"#1b2838", group:"📲 App Stores" },
+  { id:"PlayStation Store", label:"PlayStation", icon:"🎮", color:"#003087", group:"📲 App Stores" },
+  { id:"Xbox Store", label:"Xbox", icon:"🟢", color:"#107c10", group:"📲 App Stores" },
+  // Learning
+  { id:"Udemy", label:"Udemy", icon:"📖", color:"#a435f0", group:"🎓 Courses" },
+  { id:"Skillshare", label:"Skillshare", icon:"✏️", color:"#00ccb1", group:"🎓 Courses" },
+  { id:"Gumroad", label:"Gumroad", icon:"💰", color:"#ff90e8", group:"🎓 Courses" },
+  { id:"Patreon", label:"Patreon", icon:"🎁", color:"#ff424d", group:"🎓 Courses" },
+  { id:"Substack", label:"Substack", icon:"📧", color:"#ff6719", group:"🎓 Courses" },
+  // Freelance
+  { id:"Fiverr", label:"Fiverr", icon:"💚", color:"#1dbf73", group:"💼 Freelance" },
+  { id:"Upwork", label:"Upwork", icon:"🔵", color:"#14a800", group:"💼 Freelance" },
+  // Food
+  { id:"Zomato", label:"Zomato", icon:"🍕", color:"#e23744", group:"🍔 Food & Delivery" },
+  { id:"Swiggy", label:"Swiggy", icon:"🛵", color:"#fc8019", group:"🍔 Food & Delivery" },
+  { id:"BigBasket", label:"BigBasket", icon:"🛒", color:"#84c225", group:"🍔 Food & Delivery" },
+  { id:"Own Website", label:"Own Website", icon:"🌐", color:"#6366f1", group:"🌐 Other" },
+  { id:"Any Other Platform", label:"Other", icon:"✨", color:"#94a3b8", group:"🌐 Other" },
+];
 const PLATFORMS = [
   { id:"google_ads", name:"Google Ads", color:"#4285f4", svg:`<svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>` },
   { id:"facebook", name:"Facebook", color:"#1877f2", svg:`<svg viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/></svg>` },
@@ -154,6 +250,31 @@ export default function App(){
   // ─── HELPERS ───────────────────────────────────────────────────────────────
   const today=()=>{ const d=new Date(); return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`; };
   const showToast=(m)=>{ setToast(m); setTimeout(()=>setToast(null),3500); };
+
+  // ── COPY FUNCTION (Premium) ─────────────────────────────────────────────────
+  const copyText=(text,label)=>{
+    if(curPlan!=="premium"){ setShowPrem(true); return; }
+    try{
+      navigator.clipboard.writeText(text).then(()=>showToast("✅ Copied: "+label));
+    } catch{
+      const el=document.createElement("textarea");
+      el.value=text; document.body.appendChild(el);
+      el.select(); document.execCommand("copy");
+      document.body.removeChild(el);
+      showToast("✅ Copied: "+label);
+    }
+  };
+
+  const CopyBtn=({text,label})=>(
+    curPlan==="premium"?(
+      <button onClick={()=>copyText(text,label)} style={{
+        background:"rgba(99,102,241,.15)",border:"1px solid rgba(99,102,241,.3)",
+        borderRadius:7,padding:"3px 10px",cursor:"pointer",
+        color:"#a5b4fc",fontSize:11,fontWeight:600,
+        fontFamily:"Inter,sans-serif",marginLeft:8,transition:"all .2s"
+      }}>📋 Copy</button>
+    ):null
+  );
   const curPlan=user?(S.get("yyp_plan_"+user.email)||"free"):"free";
   const isLocked=curPlan!=="premium"&&(!usageInfo||usageInfo.remaining<=0||timer);
 
@@ -722,6 +843,11 @@ export default function App(){
     .adpf{height:100%;background:linear-gradient(90deg,#6366f1,#a855f7);transition:width 1s linear}
     .adclose{display:block;margin:10px auto 0;background:none;border:1px solid #2d3748;border-radius:100px;padding:7px 20px;color:#94a3b8;cursor:pointer;font-size:12px;font-family:'Inter',sans-serif}
     footer{text-align:center;padding:20px;color:#334155;font-size:12px;border-top:1px solid rgba(255,255,255,.03)}
+    /* COPY BTN HOVER */
+    .copy-hover:hover{background:rgba(99,102,241,.25)!important;transform:scale(1.05)}
+    /* PICKER SEARCH */
+    .picker-search{width:100%;background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:9px 14px;color:#f8fafc;font-size:13px;font-family:'Inter',sans-serif;outline:none;margin-bottom:10px}
+    .picker-search:focus{border-color:#6366f1}
     @media(max-width:600px){
       .nav{padding:11px 12px} .dcontent{padding:24px 12px 60px}
       .upill{display:none} .pgrid{gap:5px} .pbtn{padding:10px 3px 8px}
@@ -921,7 +1047,7 @@ export default function App(){
         <div className="hero">
           <div className="hbadge">✨ YYP AI — Product Intelligence</div>
           <h1 className="htitle">Product Intelligence<br/><span className="grad">Powered by YesYouPro</span></h1>
-          <p className="hsub">Enter any product and get deep market analysis, viral hooks, keywords and complete platform strategies.</p>
+          <p className="hsub">Analyze ANYTHING — physical products, digital items, apps, games, websites, social media, services, courses & more!</p>
         </div>
 
         {/* 24HR TIMER */}
@@ -963,55 +1089,168 @@ export default function App(){
 
         {/* ANALYSIS INPUT */}
         <div className="icard">
-          <h3 className="ictitle">🎯 Analyze a Product</h3>
-          <div className="igrid">
-            <div className="igrp">
-              <label className="ilbl">Product Name *</label>
-              <input className="di" placeholder="e.g. Portable Blender" value={pForm.name} onChange={e=>setPForm({...pForm,name:e.target.value})}/>
-            </div>
-            <div className="igrp">
-              <label className="ilbl">Category *</label>
-              <div className="dsel-wrap">
-                <select className="di" style={{paddingRight:32}} value={pForm.category} onChange={e=>setPForm({...pForm,category:e.target.value})}>
-                  <option value="">Select category</option>
-                  {["Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Fashion","Pet Supplies","Toys & Games","Health & Wellness","Outdoor & Sports"].map(c=><option key={c} value={c}>{c}</option>)}
-                </select>
-                <span className="dsel-arrow">▾</span>
-              </div>
-            </div>
-            <div className="igrp">
-              <label className="ilbl">Platform *</label>
-              <div className="dsel-wrap">
-                <select className="di" style={{paddingRight:32}} value={pForm.platform} onChange={e=>setPForm({...pForm,platform:e.target.value})}>
-                  <option value="">Select platform</option>
-                  {["Amazon","Shopify","Meesho","Flipkart","Instagram","TikTok Shop","Etsy","Facebook Marketplace","WooCommerce"].map(p=><option key={p} value={p}>{p}</option>)}
-                </select>
-                <span className="dsel-arrow">▾</span>
-              </div>
-            </div>
+          <h3 className="ictitle">🎯 Analyze Anything</h3>
+          <div className="igrp" style={{marginBottom:16}}>
+            <label className="ilbl">Product / Item / Service Name *</label>
+            <input className="di" placeholder="e.g. Portable Blender, BGMI, YouTube Channel, Dropshipping Store..." value={pForm.name} onChange={e=>setPForm({...pForm,name:e.target.value})}/>
           </div>
+
+          {/* CATEGORY VISUAL PICKER */}
+          <div style={{marginBottom:18}}>
+            <label className="ilbl" style={{marginBottom:10,display:"block"}}>Category * {pForm.category&&<span style={{color:"#10b981",marginLeft:6}}>✅ {pForm.category}</span>}</label>
+            {["physical","digital","other"].map(type=>(
+              <div key={type} style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:type==="digital"?"#a855f7":type==="physical"?"#10b981":"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>
+                  {type==="physical"?"📦 Physical Products":type==="digital"?"💻 Digital & Virtual":"✨ Other"}
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {CATEGORIES.filter(c=>c.type===type).map(c=>(
+                    <button key={c.id} onClick={()=>setPForm({...pForm,category:c.id})} style={{
+                      background:pForm.category===c.id?"linear-gradient(135deg,#6366f1,#8b5cf6)":"rgba(15,23,42,0.7)",
+                      border:pForm.category===c.id?"1px solid #6366f1":"1px solid #1e293b",
+                      borderRadius:10, padding:"6px 12px", cursor:"pointer",
+                      display:"flex", alignItems:"center", gap:5,
+                      color:pForm.category===c.id?"#fff":"#94a3b8",
+                      fontSize:12, fontWeight:600, fontFamily:"Inter,sans-serif",
+                      transition:"all .2s",
+                      boxShadow:pForm.category===c.id?"0 2px 12px rgba(99,102,241,.4)":"none"
+                    }}>
+                      <span style={{fontSize:14}}>{c.icon}</span>{c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* PLATFORM VISUAL PICKER */}
+          <div style={{marginBottom:18}}>
+            <label className="ilbl" style={{marginBottom:10,display:"block"}}>Platform * {pForm.platform&&<span style={{color:"#10b981",marginLeft:6}}>✅ {pForm.platform}</span>}</label>
+            {[...new Set(ALL_PLATFORMS.map(p=>p.group))].map(grp=>(
+              <div key={grp} style={{marginBottom:10}}>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{grp}</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {ALL_PLATFORMS.filter(p=>p.group===grp).map(p=>(
+                    <button key={p.id} onClick={()=>setPForm({...pForm,platform:p.id})} style={{
+                      background:pForm.platform===p.id?p.color:"rgba(15,23,42,0.7)",
+                      border:pForm.platform===p.id?`1px solid ${p.color}`:"1px solid #1e293b",
+                      borderRadius:10, padding:"6px 12px", cursor:"pointer",
+                      display:"flex", alignItems:"center", gap:5,
+                      color:pForm.platform===p.id?"#fff":"#94a3b8",
+                      fontSize:12, fontWeight:600, fontFamily:"Inter,sans-serif",
+                      transition:"all .2s",
+                      boxShadow:pForm.platform===p.id?`0 2px 12px ${p.color}60`:"none"
+                    }}>
+                      <span style={{fontSize:14}}>{p.icon}</span>{p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
           {err&&<div className="errbanner">{err}</div>}
-          <button className="abtn" onClick={runAnalysis} disabled={loading||(!!(timer&&curPlan==="free"))||loading}>
+          <button className="abtn" onClick={runAnalysis} disabled={loading||(!!(timer&&curPlan==="free"))}>
             🚀 Get AI Analysis {curPlan==="free"&&!timer&&<span className="anote">· Ad plays first</span>}
           </button>
         </div>
 
-        {/* ANALYSIS RESULTS */}
+                {/* ANALYSIS RESULTS */}
         {analysis&&<div className="fade-in" style={{marginBottom:12}}>
-          <h2 className="rtitle">📊 Results — <span className="grad">{pForm.name}</span></h2>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+            <h2 style={{fontWeight:900,fontSize:20,color:"#f8fafc",margin:0}}>📊 Results — <span className="grad">{pForm.name}</span></h2>
+            {curPlan==="premium"?(
+              <button onClick={()=>{
+                const report = [
+                  "=== YESYOUPRO ANALYSIS REPORT ===",
+                  "Product: "+pForm.name,
+                  "Category: "+pForm.category,
+                  "Platform: "+pForm.platform,
+                  "",
+                  "📊 METRICS",
+                  "Viral Score: "+analysis.viral_score,
+                  "Demand: "+analysis.demand_level,
+                  "Competition: "+analysis.competition_level,
+                  "Price Range: "+analysis.price_range,
+                  "",
+                  "📝 DESCRIPTION",
+                  analysis.description,
+                  "",
+                  "🪝 VIRAL HOOKS",
+                  ...(analysis.hooks||[]).map((h,i)=>(i+1)+". "+h),
+                  "",
+                  "🔑 KEYWORDS",
+                  (analysis.keywords||[]).join(", "),
+                  "",
+                  "🎯 TARGET AUDIENCE",
+                  ...(Array.isArray(analysis.target_audience)?analysis.target_audience:[analysis.target_audience||""]).map((a,i)=>(i+1)+". "+a),
+                  "",
+                  analysis.monetization?"💰 MONETIZATION
+"+analysis.monetization:"",
+                  "=== Generated by YesYouPro.com ==="
+                ].filter(Boolean).join("\n");
+                copyText(report,"Full Report");
+              }} style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:10,padding:"9px 18px",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",display:"flex",alignItems:"center",gap:6}}>
+                📋 Copy Full Report
+              </button>
+            ):(
+              <div style={{background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",borderRadius:10,padding:"7px 14px",fontSize:12,color:"#f59e0b",cursor:"pointer"}} onClick={()=>setShowPrem(true)}>
+                🔒 Copy Report (Premium)
+              </div>
+            )}
+          </div>
           <div className="mrow">
             {[{l:"🔥 Viral Score",v:analysis.viral_score,c:"#f59e0b"},{l:"📈 Demand",v:analysis.demand_level,c:"#10b981"},{l:"⚔️ Competition",v:analysis.competition_level,c:"#ef4444"},{l:"💰 Price Range",v:analysis.price_range,c:"#6366f1"}].map(m=>(
               <div key={m.l} className="mcard"><div className="mlbl">{m.l}</div><div className="mval" style={{color:m.c}}>{m.v}</div></div>
             ))}
           </div>
           <div className="tcol">
-            <div className="gcard"><h4 className="gct">📝 Description</h4><p className="gctx">{analysis.description}</p></div>
+            <div className="gcard">
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:11}}>
+                <h4 className="gct" style={{margin:0}}>📝 Description</h4>
+                {curPlan==="premium"&&<button onClick={()=>copyText(analysis.description,"Description")} style={{background:"rgba(99,102,241,.15)",border:"1px solid rgba(99,102,241,.3)",borderRadius:7,padding:"4px 12px",cursor:"pointer",color:"#a5b4fc",fontSize:11,fontWeight:600,fontFamily:"Inter,sans-serif"}}>📋 Copy</button>}
+              </div>
+              <p className="gctx">{analysis.description}</p>
+            </div>
             <div className="gcard"><h4 className="gct">🎯 Target Audience</h4>
               {Array.isArray(analysis.target_audience)?analysis.target_audience.map((a,i)=><div key={i} className="hitem"><span className="hnum">{i+1}</span><span style={{color:"#94a3b8",fontSize:13,lineHeight:1.6}}>{a}</span></div>):<p className="gctx">{analysis.target_audience}</p>}
             </div>
           </div>
-          <div className="gcard"><h4 className="gct">🪝 Viral Hooks</h4>{analysis.hooks?.map((h,i)=><div key={i} className="hitem"><span className="hnum">{i+1}</span><span>{h}</span></div>)}</div>
-          <div className="gcard"><h4 className="gct">🔑 Keywords</h4><div className="kwg">{analysis.keywords?.map((k,i)=><div key={i} className="kwc">{k}</div>)}</div></div>
+          <div className="gcard">
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:11}}>
+              <h4 className="gct" style={{margin:0}}>🪝 Viral Hooks</h4>
+              {curPlan==="premium"&&<button onClick={()=>copyText(analysis.hooks?.join("\n"),"Viral Hooks")} style={{background:"rgba(99,102,241,.15)",border:"1px solid rgba(99,102,241,.3)",borderRadius:7,padding:"4px 12px",cursor:"pointer",color:"#a5b4fc",fontSize:11,fontWeight:600,fontFamily:"Inter,sans-serif"}}>📋 Copy All</button>}
+            </div>
+            {analysis.hooks?.map((h,i)=>(
+              <div key={i} className="hitem" style={{justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:10,flex:1}}><span className="hnum">{i+1}</span><span>{h}</span></div>
+                {curPlan==="premium"&&<button onClick={()=>copyText(h,"Hook "+(i+1))} style={{background:"none",border:"1px solid rgba(99,102,241,.2)",borderRadius:6,padding:"2px 8px",cursor:"pointer",color:"#6366f1",fontSize:10,fontWeight:600,fontFamily:"Inter,sans-serif",flexShrink:0,marginLeft:6}}>📋</button>}
+              </div>
+            ))}
+          </div>
+          <div className="gcard">
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:11}}>
+              <h4 className="gct" style={{margin:0}}>🔑 Keywords</h4>
+              {curPlan==="premium"&&<button onClick={()=>copyText(analysis.keywords?.join(", "),"Keywords")} style={{background:"rgba(99,102,241,.15)",border:"1px solid rgba(99,102,241,.3)",borderRadius:7,padding:"4px 12px",cursor:"pointer",color:"#a5b4fc",fontSize:11,fontWeight:600,fontFamily:"Inter,sans-serif"}}>📋 Copy All</button>}
+            </div>
+            <div className="kwg">{analysis.keywords?.map((k,i)=>(
+              <div key={i} className="kwc" style={{cursor:curPlan==="premium"?"pointer":"default",display:"flex",alignItems:"center",gap:4}} onClick={()=>curPlan==="premium"&&copyText(k,k)}>
+                {k}{curPlan==="premium"&&<span style={{fontSize:9,opacity:.7}}>📋</span>}
+              </div>
+            ))}</div>
+          </div>
+          {Array.isArray(analysis.best_platforms)&&analysis.best_platforms.length>0&&(
+            <div className="gcard"><h4 className="gct">🚀 Best Platforms to Sell/Launch</h4>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                {analysis.best_platforms.map((p,i)=>(
+                  <div key={i} style={{background:"rgba(16,185,129,.08)",border:"1px solid rgba(16,185,129,.2)",color:"#10b981",borderRadius:10,padding:"6px 14px",fontSize:13,fontWeight:600}}>✅ {p}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          {analysis.monetization&&(
+            <div className="gcard"><h4 className="gct">💰 Monetization Strategy</h4><p className="gctx">{analysis.monetization}</p></div>
+          )}
 
           {/* PLATFORMS */}
           <div className="psec">
@@ -1152,7 +1391,7 @@ export default function App(){
             <div className="pfield"><label>Budget (₹)</label><input type="number" placeholder="5000" value={beginForm.budget} onChange={e=>setBeginForm({...beginForm,budget:e.target.value})}/></div>
             <div className="pfield"><label>Category</label>
               <select value={beginForm.category} onChange={e=>setBeginForm({...beginForm,category:e.target.value})}>
-                {["Fashion","Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Pet Supplies","Toys & Games","Health & Wellness"].map(c=><option key={c}>{c}</option>)}
+                {["Fashion","Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Pet Supplies","Digital Products","Mobile Apps","Online Courses","Any Other"].map(c=><option key={c}>{c}</option>)}
               </select>
             </div>
           </div>
@@ -1236,7 +1475,7 @@ export default function App(){
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
             <div className="dsel-wrap" style={{flex:1,minWidth:160}}>
               <select className="di" style={{paddingRight:32}} value={trendCat} onChange={e=>setTrendCat(e.target.value)}>
-                {["Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Fashion","Pet Supplies","Toys & Games","Health & Wellness","Outdoor & Sports"].map(c=><option key={c}>{c}</option>)}
+                {["Electronics","Beauty & Skincare","Home & Kitchen","Fitness","Fashion","Pet Supplies","Toys & Games","Health & Wellness","Outdoor & Sports","Food & Beverages","Digital Products","Mobile Apps","PC / Console Games","Online Courses","Software & SaaS","YouTube Channel","Instagram Page","Any Other"].map(c=><option key={c}>{c}</option>)}
               </select>
               <span className="dsel-arrow">▾</span>
             </div>
