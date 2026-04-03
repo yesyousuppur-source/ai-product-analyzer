@@ -138,6 +138,8 @@ export default function App(){
   const[platD,setPlatD]=useState({});
   const[platLoad,setPlatLoad]=useState(false);
   const[tab,setTab]=useState("profit");
+  const[showCats,setShowCats]=useState(false);
+  const[showPlats,setShowPlats]=useState(false);
   const[toast,setToast]=useState(null);
   // feature states
   const[profF,setProfF]=useState({buy:"",sell:"",units:"1",fee:"10",ship:"60",ads:"200"});
@@ -910,47 +912,73 @@ export default function App(){
 
           {/* CATEGORY PICKER */}
           <div style={{marginBottom:18}}>
-            <label className="ilbl" style={{display:"block",marginBottom:8}}>
-              Category * {pf.category&&<span style={{color:"#10b981",marginLeft:6,fontSize:11}}>✅ {pf.category}</span>}
-            </label>
-            {[{type:"p",label:"📦 Physical Products",color:"#10b981"},{type:"d",label:"💻 Digital & Virtual",color:"#a855f7"}].map(grp=>(
-              <div key={grp.type} style={{marginBottom:9}}>
-                <div style={{fontSize:10,color:grp.color,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:5}}>{grp.label}</div>
-                <div className="picker-chips">
-                  {CATS.filter(c=>c.type===grp.type).map(c=>(
-                    <button key={c.id} className={"pchip"+(pf.category===c.id?" on":"")}
-                      style={pf.category===c.id?{background:"linear-gradient(135deg,#6366f1,#8b5cf6)"}:{}}
-                      onClick={()=>setPf({...pf,category:c.id})}>
-                      <span>{c.icon}</span>{c.id}
-                    </button>
-                  ))}
-                </div>
+            <label className="ilbl" style={{display:"block",marginBottom:8}}>Category *</label>
+            <button onClick={()=>setShowCats(!showCats)} style={{
+              width:"100%",background:pf.category?"linear-gradient(135deg,rgba(99,102,241,.15),rgba(139,92,246,.1))":"rgba(15,23,42,.7)",
+              border:pf.category?"1px solid rgba(99,102,241,.4)":"1px solid #1e293b",
+              borderRadius:11,padding:"11px 14px",cursor:"pointer",
+              display:"flex",alignItems:"center",justifyContent:"space-between",
+              color:pf.category?"#f8fafc":"#64748b",fontSize:13,fontWeight:600,
+              fontFamily:"Inter,sans-serif",transition:"all .2s"
+            }}>
+              <span>{pf.category?CATS.find(c=>c.id===pf.category)?.icon+" "+pf.category:"Select Category"}</span>
+              <span style={{fontSize:12,color:"#6366f1"}}>{showCats?"▲":"▼"}</span>
+            </button>
+            {showCats&&(
+              <div style={{background:"rgba(10,18,40,.97)",border:"1px solid rgba(99,102,241,.2)",borderRadius:12,padding:"14px 12px",marginTop:6,animation:"fadeIn .2s ease"}}>
+                {[{type:"p",label:"📦 Physical Products",color:"#10b981"},{type:"d",label:"💻 Digital & Virtual",color:"#a855f7"}].map(grp=>(
+                  <div key={grp.type} style={{marginBottom:12}}>
+                    <div style={{fontSize:10,color:grp.color,fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:7}}>{grp.label}</div>
+                    <div className="picker-chips">
+                      {CATS.filter(c=>c.type===grp.type).map(c=>(
+                        <button key={c.id} className={"pchip"+(pf.category===c.id?" on":"")}
+                          style={pf.category===c.id?{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",borderColor:"#6366f1"}:{}}
+                          onClick={()=>{setPf({...pf,category:c.id});setShowCats(false);}}>
+                          <span>{c.icon}</span>{c.id}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
 
           {/* PLATFORM PICKER */}
           <div style={{marginBottom:6}}>
-            <label className="ilbl" style={{display:"block",marginBottom:8}}>
-              Platform * {pf.platform&&<span style={{color:"#10b981",marginLeft:6,fontSize:11}}>✅ {pf.platform}</span>}
-            </label>
-            {platGroups.map(grp=>{
-              const platsInGrp=PLATS.filter(p=>p.g===grp);
-              return(
-                <div key={grp} style={{marginBottom:9}}>
-                  <div style={{fontSize:10,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:5}}>{grp}</div>
-                  <div className="picker-chips">
-                    {platsInGrp.map(p=>(
-                      <button key={p.id} className={"pchip"+(pf.platform===p.id?" on":"")}
-                        style={pf.platform===p.id?{background:p.color,borderColor:p.color}:{}}
-                        onClick={()=>setPf({...pf,platform:p.id})}>
-                        <span>{p.icon}</span>{p.id}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+            <label className="ilbl" style={{display:"block",marginBottom:8}}>Platform *</label>
+            <button onClick={()=>setShowPlats(!showPlats)} style={{
+              width:"100%",background:pf.platform?(()=>{const pl=PLATS.find(p=>p.id===pf.platform);return pl?`linear-gradient(135deg,${pl.color}22,${pl.color}11)`:""})():"rgba(15,23,42,.7)",
+              border:pf.platform?(()=>{const pl=PLATS.find(p=>p.id===pf.platform);return pl?`1px solid ${pl.color}66`:"1px solid #1e293b"})():"1px solid #1e293b",
+              borderRadius:11,padding:"11px 14px",cursor:"pointer",
+              display:"flex",alignItems:"center",justifyContent:"space-between",
+              color:pf.platform?"#f8fafc":"#64748b",fontSize:13,fontWeight:600,
+              fontFamily:"Inter,sans-serif",transition:"all .2s"
+            }}>
+              <span>{pf.platform?PLATS.find(p=>p.id===pf.platform)?.icon+" "+pf.platform:"Select Platform"}</span>
+              <span style={{fontSize:12,color:"#6366f1"}}>{showPlats?"▲":"▼"}</span>
+            </button>
+            {showPlats&&(
+              <div style={{background:"rgba(10,18,40,.97)",border:"1px solid rgba(99,102,241,.2)",borderRadius:12,padding:"14px 12px",marginTop:6,animation:"fadeIn .2s ease",maxHeight:380,overflowY:"auto"}}>
+                {platGroups.map(grp=>{
+                  const platsInGrp=PLATS.filter(p=>p.g===grp);
+                  return(
+                    <div key={grp} style={{marginBottom:12}}>
+                      <div style={{fontSize:10,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:.8,marginBottom:7}}>{grp}</div>
+                      <div className="picker-chips">
+                        {platsInGrp.map(p=>(
+                          <button key={p.id} className={"pchip"+(pf.platform===p.id?" on":"")}
+                            style={pf.platform===p.id?{background:p.color,borderColor:p.color}:{}}
+                            onClick={()=>{setPf({...pf,platform:p.id});setShowPlats(false);}}>
+                            <span>{p.icon}</span>{p.id}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {err&&<div className="errbanner">{err}</div>}
