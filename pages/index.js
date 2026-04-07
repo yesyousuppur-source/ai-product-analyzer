@@ -221,7 +221,7 @@ export default function App(){
 
   const showToast=(m)=>{setToast(m);setTimeout(()=>setToast(null),3500);};
   const curPlan=user?(S.get("yyp_plan_"+user.email)||"free"):"free";
-  const guestLimitHit=!user&&parseInt(S.get("yyp_guest_count")||"0")>=FREE_LIMIT;
+  const guestLimitHit=!user&&(typeof window!=="undefined"?parseInt(S.get("yyp_guest_count")||"0"):0)>=FREE_LIMIT;
   const isLocked=(curPlan!=="premium"&&(!usage||usage.remaining<=0||!!timer))||guestLimitHit;
 
   const todayK=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
@@ -839,6 +839,11 @@ export default function App(){
 
 
 
+  // Pre-compute guest values for JSX (avoid S.get in JSX)
+  const guestCount = typeof window !== "undefined" ? parseInt(S.get("yyp_guest_count")||"0") : 0;
+  const guestRemaining = Math.max(0, FREE_LIMIT - guestCount);
+  const guestLocked = !user && guestCount >= FREE_LIMIT;
+
   return(<>
     <Head>
       <title>YesYouPro — AI Product Analyzer for Indian Sellers</title>
@@ -1333,7 +1338,7 @@ export default function App(){
         {!user&&<div className="upill">
           <span style={{color:"#94a3b8",fontWeight:700}}>👤 Guest</span>
           <span style={{color:"#334155"}}>|</span>
-          <span style={{color:parseInt(S.get("yyp_guest_count")||"0")>=FREE_LIMIT?"#ef4444":"#10b981",fontWeight:700}}>{Math.max(0,FREE_LIMIT-parseInt(S.get("yyp_guest_count")||"0"))}/{FREE_LIMIT}</span>
+          <span style={{color:guestLocked?"#ef4444":"#10b981",fontWeight:700}}>{guestRemaining}/{FREE_LIMIT}</span>
         </div>}
         {user&&usage&&<div className="upill">
           <span style={{color:curPlan==="premium"?"#f59e0b":"#94a3b8",fontWeight:700}}>{curPlan==="premium"?"💎 Premium":"🆓 Free"}</span>
