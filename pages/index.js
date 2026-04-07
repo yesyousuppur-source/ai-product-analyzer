@@ -556,6 +556,11 @@ export default function App(){
   };
 
   const activatePrem=()=>{
+    if(user?.isGuest){
+      // Guest bought premium - ask them to create account
+      setPayStep("create_account");
+      return;
+    }
     const expiry=new Date(Date.now()+PREM_DAYS*86400000).toISOString();
     S.set("yyp_prem_"+user.email,{expiry,used:0});
     S.set("yyp_plan_"+user.email,"premium");
@@ -947,6 +952,16 @@ export default function App(){
           </>
         ):payStep==="processing"?(
           <div style={{textAlign:"center",padding:36}}><div className="sp" style={{margin:"0 auto"}}/><p style={{color:"#94a3b8",marginTop:14}}>Processing...</p></div>
+        ):payStep==="create_account"?(
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:56,marginBottom:10}}>🎉</div>
+            <h2 className="ptitle">Payment Successful!</h2>
+            <p style={{color:"#94a3b8",fontSize:13,marginBottom:20,lineHeight:1.6}}>Create your account to activate Premium and access all features!</p>
+            <button className="pbtn2" onClick={()=>{setShowPrem(false);setShowPay(false);setPayStep("form");S.set("yyp_pending_premium",true);setScreen("auth");}}>
+              🔐 Create Account to Activate
+            </button>
+            <p style={{color:"#475569",fontSize:11,marginTop:10}}>Your payment is confirmed. Sign up to unlock everything.</p>
+          </div>
         ):(
           <div style={{textAlign:"center"}}>
             <div style={{fontSize:56,marginBottom:10}}>🎉</div>
@@ -1267,7 +1282,10 @@ export default function App(){
         <button onClick={()=>setScreen("home")} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,fontWeight:600,fontFamily:"Inter,sans-serif",marginBottom:8,display:"flex",alignItems:"center",gap:4}}>
           ← Back to Home
         </button>
-        <h1 className="ntitle">{authMode==="login"?"Welcome back":"Create account"}</h1>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+          <h1 className="ntitle" style={{margin:0}}>{authMode==="login"?"Welcome back":"Create account"}</h1>
+          <button onClick={()=>setScreen("dashboard")} style={{background:"none",border:"1px solid #c8cdd5",borderRadius:100,padding:"5px 12px",color:"#8b8fa8",fontSize:11,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>← Back</button>
+        </div>
         <p className="nsub">{authMode==="login"?"Sign in to continue":"Join YesYouPro for free"}</p>
 
         {authMode==="login"&&saved.length>0&&(
