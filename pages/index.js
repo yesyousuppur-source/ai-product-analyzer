@@ -221,7 +221,8 @@ export default function App(){
 
   const showToast=(m)=>{setToast(m);setTimeout(()=>setToast(null),3500);};
   const curPlan=user?(S.get("yyp_plan_"+user.email)||"free"):"free";
-  const isLocked=curPlan!=="premium"&&(!usage||usage.remaining<=0||!!timer);
+  const guestLimitHit=!user&&parseInt(S.get("yyp_guest_count")||"0")>=FREE_LIMIT;
+  const isLocked=(curPlan!=="premium"&&(!usage||usage.remaining<=0||!!timer))||guestLimitHit;
 
   const todayK=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
 
@@ -268,6 +269,24 @@ export default function App(){
     },1000);
   };
 
+  const startGuestTimer=()=>{
+    const hit=S.get("yyp_guest_hit");
+    if(!hit)return;
+    clearInterval(timerRef.current);
+    timerRef.current=setInterval(()=>{
+      const rem=hit+86400000-Date.now();
+      if(rem<=0){
+        clearInterval(timerRef.current);
+        S.set("yyp_guest_count","0");
+        S.set("yyp_guest_hit",null);
+        setTimer(null);
+        showToast("✅ 2 free analyses reset!");
+      }else{
+        setTimer({h:Math.floor(rem/3600000),m:Math.floor((rem%3600000)/60000),s:Math.floor((rem%60000)/1000),total:rem});
+      }
+    },1000);
+  };
+
   useEffect(()=>{
     const accounts=S.get("yyp_accounts")||[];
     setSaved(accounts);
@@ -298,6 +317,14 @@ export default function App(){
     })();
 
     setScreen("home"); // Always go to home
+
+    // Check if guest timer should be running
+    const gHit=S.get("yyp_guest_hit");
+    const gCount=parseInt(S.get("yyp_guest_count")||"0");
+    if(!sv?.email&&gCount>=2&&gHit&&(Date.now()-gHit)<86400000){
+      // Guest timer still active
+      setTimeout(()=>startGuestTimer(),500);
+    }
   },[]);
 
   useEffect(()=>{if(!user)return;startTimer(user);return()=>clearInterval(timerRef.current);},[user]);
@@ -423,9 +450,17 @@ export default function App(){
       const gKey="yyp_guest_count";
       const gCount=parseInt(S.get(gKey)||"0");
       if(gCount>=FREE_LIMIT){
-        // Show login popup after 2 guest analyses
-        setShowLoginPop(true);
-        return;
+        // Check if timer is active
+        const gHit=S.get("yyp_guest_hit");
+        if(gHit&&(Date.now()-gHit)<86400000){
+          // Timer still running - show login popup with timer
+          setShowLoginPop(true);
+          return;
+        } else {
+          // Reset guest count after 24hrs
+          S.set(gKey,"0");
+          S.set("yyp_guest_hit",null);
+        }
       }
     }
 
@@ -448,7 +483,13 @@ export default function App(){
       if(!user){
         const gKey="yyp_guest_count";
         const gCount=parseInt(S.get(gKey)||"0");
-        S.set(gKey,String(gCount+1));
+        const newGCount=gCount+1;
+        S.set(gKey,String(newGCount));
+        // Start guest timer after limit hit
+        if(newGCount>=FREE_LIMIT&&!S.get("yyp_guest_hit")){
+          S.set("yyp_guest_hit",Date.now());
+          startGuestTimer();
+        }
       }
       setResult(data);showToast("✅ Analysis complete!");
     }catch(e){setErr("Analysis failed: "+e.message);}
@@ -1292,7 +1333,7 @@ export default function App(){
         {!user&&<div className="upill">
           <span style={{color:"#94a3b8",fontWeight:700}}>👤 Guest</span>
           <span style={{color:"#334155"}}>|</span>
-          <span style={{color:"#10b981",fontWeight:700}}>{Math.max(0,FREE_LIMIT-parseInt(S.get("yyp_guest_count")||"0"))}/{FREE_LIMIT} free</span>
+          <span style={{color:parseInt(S.get("yyp_guest_count")||"0")>=FREE_LIMIT?"#ef4444":"#10b981",fontWeight:700}}>{Math.max(0,FREE_LIMIT-parseInt(S.get("yyp_guest_count")||"0"))}/{FREE_LIMIT}</span>
         </div>}
         {user&&usage&&<div className="upill">
           <span style={{color:curPlan==="premium"?"#f59e0b":"#94a3b8",fontWeight:700}}>{curPlan==="premium"?"💎 Premium":"🆓 Free"}</span>
@@ -1313,9 +1354,9 @@ export default function App(){
           <p className="hsub">Products, apps, games, websites, channels, services — get deep AI insights for anything!</p>
         </div>
 
-        {timer&&curPlan==="free"&&<div className="tbox">
+        {timer&&(curPlan==="free"||!user)&&<div className="tbox">
           <div className="ttitle">⏳ Daily Limit Reached</div>
-          <div className="tsub">2 free analyses used. Reset in:</div>
+          <div className="tsub">{user?"2 free analyses used. Reset in:":"2 guest analyses used. Login for more or wait:"}</div>
           <div className="trow">
             {[{v:String(timer.h).padStart(2,"0"),l:"Hours"},{sep:true},{v:String(timer.m).padStart(2,"0"),l:"Min"},{sep:true},{v:String(timer.s).padStart(2,"0"),l:"Sec"}].map((t,i)=>
               t.sep?<div key={i} className="tsep">:</div>:
@@ -1325,11 +1366,18 @@ export default function App(){
           <div className="tprog"><div className="tpf" style={{width:Math.max(0,100-(timer.total/86400000)*100)+"%"}}/></div>
           <div style={{marginTop:12,display:"flex",alignItems:"center",justifyContent:"center",gap:9,flexWrap:"wrap"}}>
             <span style={{color:"#64748b",fontSize:12}}>Don&apos;t want to wait?</span>
-            <button onClick={()=>setShowPrem(true)} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:100,padding:"7px 16px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Get Premium ₹249</button>
+            {user?(
+              <button onClick={()=>setShowPrem(true)} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:100,padding:"7px 16px",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 Get Premium ₹249</button>
+            ):(
+              <div style={{display:"flex",gap:7}}>
+                <button onClick={()=>{setScreen("auth");setAuthMode("login");}} style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:100,padding:"7px 14px",color:"#fff",fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>🔑 Login</button>
+                <button onClick={()=>setShowPrem(true)} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:100,padding:"7px 14px",color:"#fff",fontWeight:800,fontSize:11,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>💎 ₹249</button>
+              </div>
+            )}
           </div>
         </div>}
 
-        {!user&&(
+        {!user&&!timer&&(
           <div className="bnr-g" style={{background:"rgba(99,102,241,.06)",borderColor:"rgba(99,102,241,.2)"}}>
             <div>
               <div style={{fontWeight:700,fontSize:12,color:"#a5b4fc"}}>👤 Guest Mode — {Math.max(0,FREE_LIMIT-parseInt(S.get("yyp_guest_count")||"0"))}/{FREE_LIMIT} Free Analyses</div>
@@ -1437,8 +1485,8 @@ export default function App(){
           </div>
 
           {err&&<div className="errbanner">{err}</div>}
-          <button className="abtn" onClick={runAnalysis} disabled={loading||(!!timer&&curPlan==="free")}>
-            🚀 Get AI Analysis {curPlan==="free"&&!timer&&<span className="anote">· Ad plays first</span>}
+          <button className="abtn" onClick={runAnalysis} disabled={loading||(!user&&!!timer)||(!!timer&&curPlan==="free")}>
+            🚀 Get AI Analysis {(curPlan==="free"||!user)&&!timer&&<span className="anote">· Ad plays first</span>}
           </button>
         </div>
 
