@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import Head from "next/head";
 
 const FREE_LIMIT = 2;
 const PREM_LIMIT = 30;
@@ -111,7 +112,7 @@ async function getFireAuth(){
 }
 
 export default function App(){
-  const[screen,setScreen]=useState("loading");
+  const[screen,setScreen]=useState("home");
   const[user,setUser]=useState(null);
   const[authMode,setAuthMode]=useState("login");
   const[form,setForm]=useState({email:"",password:"",name:""});
@@ -139,6 +140,11 @@ export default function App(){
   const[platLoad,setPlatLoad]=useState(false);
   const[tab,setTab]=useState("profit");
   const[showCats,setShowCats]=useState(false);
+  const[showProfile,setShowProfile]=useState(false);
+  const[profileTab,setProfileTab]=useState("main"); // main | terms | questions
+  const[question,setQuestion]=useState("");
+  const[qSent,setQSent]=useState(false);
+  const[qLoading,setQLoading]=useState(false);
   const[showPlats,setShowPlats]=useState(false);
   const[toast,setToast]=useState(null);
   // feature states
@@ -160,6 +166,58 @@ export default function App(){
   const[invtD,setInvtD]=useState(null);const[invtL,setInvtL]=useState(false);
   const[revD,setRevD]=useState(null);const[revL,setRevL]=useState(false);
   const[nicheD,setNicheD]=useState(null);const[nicheL,setNicheL]=useState(false);
+
+  const sendQuestion=async()=>{
+    if(!question.trim()){showToast("Please write your question first");return;}
+    setQLoading(true);
+    try{
+      await fetch("https://formspree.io/f/YOUR_FORM_ID",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          name:user?.name||"User",
+          email:user?.email||"",
+          message:question,
+          _subject:"YesYouPro User Question from "+user?.email
+        })
+      });
+      setQSent(true);
+      setQuestion("");
+      showToast("✅ Question sent! We will reply soon.");
+    }catch{
+      showToast("Failed to send. Try again.");
+    }
+    setQLoading(false);
+  };
+
+  // ── SEND QUESTION TO EMAIL ─────────────────────────────────────────────────
+  const sendQuestion=async()=>{
+    if(!question.trim()){showToast("Please type your question first");return;}
+    setQSending(true);
+    try{
+      const res=await fetch("/api/contact",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          email:user?.email||"unknown",
+          name:user?.name||"User",
+          message:question,
+          plan:curPlan
+        })
+      });
+      if(res.ok){
+        setQSent(true);
+        setQuestion("");
+        showToast("✅ Question sent! We'll reply soon.");
+        setTimeout(()=>setQSent(false),4000);
+      }else{
+        showToast("Failed to send. Try again.");
+      }
+    }catch{
+      showToast("Network error. Try again.");
+    }
+    setQSending(false);
+  };
 
   const showToast=(m)=>{setToast(m);setTimeout(()=>setToast(null),3500);};
   const curPlan=user?(S.get("yyp_plan_"+user.email)||"free"):"free";
@@ -213,26 +271,33 @@ export default function App(){
   useEffect(()=>{
     const accounts=S.get("yyp_accounts")||[];
     setSaved(accounts);
+
+    // Always show homepage first - no login required
+    if(typeof window==="undefined"){setScreen("home");return;}
+
+    // Check if already logged in (background check)
     const sv=S.get("yyp_current");
     if(sv?.email){
       const u={...sv,plan:S.get("yyp_plan_"+sv.email)||"free"};
-      setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("dashboard");return;
+      setUser(u);setUsage(calcUsage(u));startTimer(u);
     }
-    if(typeof window==="undefined"){setScreen("auth");return;}
-    let unsub=null;
+
+    // Fire Firebase listener silently
     (async()=>{
       try{
         const auth=await getFireAuth();
         const{onAuthStateChanged}=await import("firebase/auth");
-        unsub=onAuthStateChanged(auth,(fbU)=>{
+        onAuthStateChanged(auth,(fbU)=>{
           if(fbU){
             const u={email:fbU.email,name:fbU.displayName||fbU.email.split("@")[0],photo:fbU.photoURL||null,plan:S.get("yyp_plan_"+fbU.email)||"free"};
-            S.set("yyp_current",u);setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("dashboard");
-          }else{setScreen("auth");}
+            S.set("yyp_current",u);
+            setUser(u);setUsage(calcUsage(u));startTimer(u);
+          }
         });
-      }catch{setScreen("auth");}
+      }catch{}
     })();
-    return()=>{if(unsub)unsub();};
+
+    setScreen("home"); // Always go to home
   },[]);
 
   useEffect(()=>{if(!user)return;startTimer(user);return()=>clearInterval(timerRef.current);},[user]);
@@ -254,7 +319,7 @@ export default function App(){
       const r=await signInWithPopup(auth,new GoogleAuthProvider());
       const u={email:r.user.email,name:r.user.displayName,photo:r.user.photoURL,plan:S.get("yyp_plan_"+r.user.email)||"free"};
       S.set("yyp_current",u);saveAcc(r.user.email,r.user.displayName,"",r.user.photoURL);
-      setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("dashboard");showToast("✅ Signed in with Google!");
+      setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("home");showToast("✅ Signed in with Google!");
     }catch(e){
       if(e.code==="auth/popup-closed-by-user")setAuthErr("Sign-in cancelled.");
       else if(e.code==="auth/unauthorized-domain")setAuthErr("Domain not authorized in Firebase Console.");
@@ -276,13 +341,13 @@ export default function App(){
         await updateProfile(r.user,{displayName:form.name});
         const u={email:form.email,name:form.name,photo:null,plan:"free"};
         S.set("yyp_current",u);saveAcc(form.email,form.name,form.password,null);
-        setUser(u);setUsage(calcUsage(u));setScreen("dashboard");showToast("✅ Welcome to YesYouPro!");
+        setUser(u);setUsage(calcUsage(u));setScreen("home");showToast("✅ Welcome to YesYouPro!");
       }else{
         const{signInWithEmailAndPassword}=await import("firebase/auth");
         const r=await signInWithEmailAndPassword(auth,form.email,form.password);
         const u={email:r.user.email,name:r.user.displayName||form.email.split("@")[0],photo:null,plan:S.get("yyp_plan_"+r.user.email)||"free"};
         S.set("yyp_current",u);saveAcc(form.email,u.name,form.password,null);
-        setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("dashboard");showToast("✅ Welcome back, "+u.name+"!");
+        setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("home");showToast("✅ Welcome back, "+u.name+"!");
       }
     }catch(e){
       const allU=S.get("yyp_users")||{};
@@ -292,14 +357,14 @@ export default function App(){
         S.set("yyp_users",allU);
         const u={email:form.email,name:form.name,photo:null,plan:"free"};
         S.set("yyp_current",u);saveAcc(form.email,form.name,form.password,null);
-        setUser(u);setUsage(calcUsage(u));setScreen("dashboard");showToast("✅ Account created!");
+        setUser(u);setUsage(calcUsage(u));setScreen("home");showToast("✅ Account created!");
       }else{
         const found=allU[form.email];
         if(!found){setAuthErr("No account found. Please Sign Up.");return;}
         if(found.password!==form.password){setAuthErr("Wrong password. Try Forgot Password?");return;}
         const u={email:found.email,name:found.name,photo:null,plan:S.get("yyp_plan_"+found.email)||"free"};
         S.set("yyp_current",u);saveAcc(form.email,found.name,form.password,null);
-        setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("dashboard");showToast("✅ Welcome back!");
+        setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("home");showToast("✅ Welcome back!");
       }
     }
   };
@@ -316,7 +381,7 @@ export default function App(){
       const found=allU[acc.email];
       if(found&&found.password===acc.password){
         const u={email:found.email,name:found.name,photo:acc.photo||null,plan:S.get("yyp_plan_"+found.email)||"free"};
-        S.set("yyp_current",u);setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("dashboard");showToast("✅ Welcome back!");
+        S.set("yyp_current",u);setUser(u);setUsage(calcUsage(u));startTimer(u);setScreen("home");showToast("✅ Welcome back!");
       }else{setAuthErr("Login failed. Enter password manually.");}
     }
   };
@@ -334,7 +399,7 @@ export default function App(){
   const handleLogout=async()=>{
     try{const auth=await getFireAuth();const{signOut}=await import("firebase/auth");await signOut(auth);}catch{}
     S.set("yyp_current",null);clearInterval(timerRef.current);
-    setUser(null);setResult(null);setUsage(null);setTimer(null);setScreen("auth");
+    setUser(null);setResult(null);setUsage(null);setTimer(null);setScreen("home");
   };
 
   const showInterAd=()=>new Promise(resolve=>{
@@ -352,6 +417,18 @@ export default function App(){
   const runAnalysis=async()=>{
     if(!pf.name||!pf.category||!pf.platform){setErr("Please fill all fields");return;}
     setErr("");
+
+    // Guest user (not logged in) - track via localStorage
+    if(!user){
+      const gKey="yyp_guest_count";
+      const gCount=parseInt(S.get(gKey)||"0");
+      if(gCount>=FREE_LIMIT){
+        // Show login popup after 2 guest analyses
+        setShowLoginPop(true);
+        return;
+      }
+    }
+
     const info=calcUsage(user);
     if(info.remaining<=0){setShowPrem(true);return;}
     if(curPlan==="free")await showInterAd();
@@ -366,6 +443,12 @@ export default function App(){
       if(newInfo.remaining<=0&&curPlan==="free"&&!S.get("yyp_hit_"+user.email)){
         S.set("yyp_hit_"+user.email,Date.now());
         setTimeout(()=>startTimer(user),300);
+      }
+      // Increment guest count if not logged in
+      if(!user){
+        const gKey="yyp_guest_count";
+        const gCount=parseInt(S.get(gKey)||"0");
+        S.set(gKey,String(gCount+1));
       }
       setResult(data);showToast("✅ Analysis complete!");
     }catch(e){setErr("Analysis failed: "+e.message);}
@@ -668,6 +751,36 @@ export default function App(){
     .adpf{height:100%;background:linear-gradient(90deg,#6366f1,#a855f7);transition:width 1s linear}
     .adcl{display:block;margin:9px auto 0;background:none;border:1px solid #2d3748;border-radius:100px;padding:6px 18px;color:#94a3b8;cursor:pointer;font-size:11px;font-family:'Inter',sans-serif}
     footer{text-align:center;padding:18px;color:#334155;font-size:11px;border-top:1px solid rgba(255,255,255,.03)}
+    /* PROFILE MODAL */
+    .prof-ov{position:fixed;inset:0;background:rgba(0,0,0,.92);display:flex;align-items:flex-end;justify-content:center;z-index:8500;backdrop-filter:blur(8px)}
+    .prof-modal{background:linear-gradient(180deg,#0f172a,#020817);border:1px solid rgba(99,102,241,.2);border-radius:24px 24px 0 0;padding:28px 22px 40px;width:100%;max-width:480px;animation:slideUp .3s ease}
+    @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+    .prof-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+    .prof-user{display:flex;align-items:center;gap:12px}
+    .prof-avt{width:48px;height:48px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:#fff;overflow:hidden;flex-shrink:0}
+    .prof-avt img{width:100%;height:100%;object-fit:cover}
+    .prof-name{font-weight:800;font-size:16px;color:#f8fafc}
+    .prof-email{font-size:12px;color:#64748b;margin-top:2px}
+    .prof-plan{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700;margin-top:4px}
+    .prof-close{background:rgba(255,255,255,.06);border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;color:#94a3b8;font-size:18px;display:flex;align-items:center;justify-content:center;font-family:Inter,sans-serif}
+    .prof-menu{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+    .pmenu-btn{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:13px;padding:13px 16px;cursor:pointer;width:100%;text-align:left;color:#e2e8f0;font-size:14px;font-weight:600;font-family:Inter,sans-serif;transition:all .2s}
+    .pmenu-btn:hover{background:rgba(99,102,241,.1);border-color:rgba(99,102,241,.3)}
+    .pmenu-btn.logout{color:#ef4444;border-color:rgba(239,68,68,.2)}
+    .pmenu-btn.logout:hover{background:rgba(239,68,68,.08)}
+    .pmenu-icon{font-size:20px;width:28px;text-align:center}
+    .pmenu-arr{margin-left:auto;color:#475569;font-size:14px}
+    /* TERMS */
+    .terms-box{background:rgba(2,8,23,.5);border:1px solid #1e293b;border-radius:13px;padding:16px;max-height:320px;overflow-y:auto;margin-bottom:14px}
+    .terms-box::-webkit-scrollbar{width:4px}
+    .terms-box::-webkit-scrollbar-thumb{background:#1e293b;border-radius:10px}
+    .terms-h{font-weight:700;font-size:13px;color:#a5b4fc;margin-bottom:5px;margin-top:12px}
+    .terms-h:first-child{margin-top:0}
+    .terms-p{font-size:12px;color:#94a3b8;line-height:1.7}
+    /* QUESTION */
+    .q-box{background:rgba(2,8,23,.5);border:1px solid #1e293b;border-radius:12px;padding:4px}
+    .q-inp{width:100%;background:none;border:none;color:#f8fafc;font-size:13px;font-family:Inter,sans-serif;padding:12px;outline:none;resize:none;min-height:100px;line-height:1.6}
+    .q-inp::placeholder{color:#475569}
     /* PICKER */
     .picker-grp-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;margin-top:12px;color:#64748b}
     .picker-chips{display:flex;flex-wrap:wrap;gap:5px}
@@ -683,14 +796,19 @@ export default function App(){
 
   const platGroups=[...new Set(PLATS.map(p=>p.g))];
 
-  if(screen==="loading")return(
-    <><style>{css}</style>
-    <div style={{minHeight:"100vh",background:"#e8ecf1",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}}>
-      <div className="sp"/><p style={{color:"#8b8fa8",marginTop:14,fontSize:13,fontWeight:500}}>Loading YesYouPro...</p>
-    </div></>
-  );
+
 
   return(<>
+    <Head>
+      <title>YesYouPro — AI Product Analyzer for Indian Sellers</title>
+      <meta name="description" content="YesYouPro — AI-powered product analyzer for Indian ecommerce sellers. Analyze any product, app, game or service. Get viral hooks, keywords, competitor analysis, profit calculator & 13 premium tools. Free to try!" />
+      <meta property="og:title" content="YesYouPro — AI Product Analyzer" />
+      <meta property="og:description" content="Analyze any product in 30 seconds! Viral hooks, keywords, competitor analysis & more for Indian sellers." />
+      <meta property="og:image" content="https://yesyoupro.com/og-image.png" />
+      <meta property="og:url" content="https://yesyoupro.com" />
+      <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+      <link rel="shortcut icon" href="/favicon.svg" />
+    </Head>
     <style>{css}</style>
     {toast&&<div className="toast">{toast}</div>}
 
@@ -723,7 +841,33 @@ export default function App(){
       </div>
     </div>}
 
-    {showPrem&&<div className="moverlay" onClick={()=>{if(payStep==="form"||payStep==="success"){setShowPrem(false);setShowPay(false);setPayStep("form");}}}>
+    {/* LOGIN POPUP - after 2 guest analyses */}
+    {showLoginPop&&<div className="moverlay" onClick={()=>setShowLoginPop(false)}>
+      <div className="pmodal" onClick={e=>e.stopPropagation()} style={{textAlign:"center"}}>
+        <div style={{fontSize:56,marginBottom:12}}>🔐</div>
+        <h2 className="ptitle" style={{marginBottom:6}}>Login to Continue</h2>
+        <p style={{color:"#64748b",fontSize:13,marginBottom:20,lineHeight:1.6}}>
+          Aapne 2 free analyses use kar li hain!<br/>
+          Login karke aur 2 analyses/day pao.<br/>
+          Ya Premium buy karo — 30 analyses/7 days!
+        </p>
+        <button className="pbtn2" onClick={()=>{setShowLoginPop(false);setScreen("auth");setAuthMode("signup");}} style={{marginBottom:8}}>
+          🆓 Free Mein Sign Up Karo
+        </button>
+        <button onClick={()=>{setShowLoginPop(false);setScreen("auth");setAuthMode("login");}} style={{width:"100%",background:"rgba(99,102,241,.1)",border:"1px solid rgba(99,102,241,.3)",borderRadius:12,padding:"11px 0",color:"#a5b4fc",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif",marginBottom:10}}>
+          🔑 Login Karo
+        </button>
+        <div style={{color:"#475569",fontSize:12,margin:"8px 0"}}>ya</div>
+        <button onClick={()=>{setShowLoginPop(false);setShowPrem(true);}} style={{width:"100%",background:"linear-gradient(135deg,#f59e0b22,#ef444411)",border:"1px solid rgba(245,158,11,.3)",borderRadius:12,padding:"11px 0",color:"#f59e0b",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+          💎 Premium Buy Karo — ₹249
+        </button>
+        <button onClick={()=>setShowLoginPop(false)} style={{background:"none",border:"none",color:"#334155",fontSize:12,cursor:"pointer",marginTop:12,fontFamily:"Inter,sans-serif"}}>
+          Cancel
+        </button>
+      </div>
+    </div>}
+
+        {showPrem&&<div className="moverlay" onClick={()=>{if(payStep==="form"||payStep==="success"){setShowPrem(false);setShowPay(false);setPayStep("form");}}}>
       <div className="pmodal" onClick={e=>e.stopPropagation()}>
         {!showPay?(
           <>
@@ -773,6 +917,300 @@ export default function App(){
       </div>
     </div>}
 
+    {/* PROFILE MODAL */}
+    {showProfile&&<div className="moverlay" onClick={()=>{setShowProfile(false);setProfileTab("main");setQSent(false);}}>
+      <div className="pmodal" style={{maxWidth:420,padding:"28px 22px"}} onClick={e=>e.stopPropagation()}>
+
+        {profileTab==="main"&&(
+          <>
+            {/* User Info */}
+            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20,padding:"14px 16px",background:"rgba(99,102,241,.08)",border:"1px solid rgba(99,102,241,.2)",borderRadius:14}}>
+              <div style={{width:50,height:50,background:"linear-gradient(135deg,#6366f1,#8b5cf6)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:20,color:"#fff",overflow:"hidden",flexShrink:0}}>
+                {user?.photo?<img src={user.photo} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:user?.name?.[0]?.toUpperCase()||"U"}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:800,fontSize:15,color:"#f8fafc",marginBottom:2}}>{user?.name}</div>
+                <div style={{fontSize:12,color:"#64748b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email}</div>
+                <div style={{marginTop:5,display:"inline-block",background:curPlan==="premium"?"linear-gradient(135deg,#f59e0b,#ef4444)":"rgba(99,102,241,.15)",border:curPlan==="premium"?"none":"1px solid rgba(99,102,241,.3)",borderRadius:100,padding:"2px 10px",fontSize:11,fontWeight:700,color:curPlan==="premium"?"#fff":"#a5b4fc"}}>
+                  {curPlan==="premium"?"💎 Premium":"🆓 Free Plan"}
+                </div>
+              </div>
+            </div>
+
+            {/* Usage Info */}
+            {usage&&<div style={{background:"rgba(15,23,42,.6)",border:"1px solid #1e293b",borderRadius:12,padding:"12px 14px",marginBottom:18}}>
+              <div style={{fontSize:11,color:"#64748b",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>Usage</div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
+                <span style={{color:"#94a3b8"}}>Analyses Left</span>
+                <span style={{color:usage.remaining>0?"#10b981":"#ef4444",fontWeight:700}}>{usage.remaining} / {usage.total}</span>
+              </div>
+              {curPlan==="premium"&&usage.expiry&&<div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginTop:5}}>
+                <span style={{color:"#94a3b8"}}>Expires</span>
+                <span style={{color:"#f59e0b",fontWeight:600}}>{new Date(usage.expiry).toLocaleDateString("en-IN")}</span>
+              </div>}
+            </div>}
+
+            {/* Menu Options */}
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:18}}>
+              {curPlan==="free"&&<button onClick={()=>{setShowProfile(false);setShowPrem(true);}} style={{background:"linear-gradient(135deg,#f59e0b22,#ef444411)",border:"1px solid rgba(245,158,11,.3)",borderRadius:12,padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,color:"#f59e0b",fontWeight:700,fontSize:14,fontFamily:"Inter,sans-serif",transition:"all .2s"}}>
+                <span style={{fontSize:20}}>💎</span>
+                <div style={{textAlign:"left"}}>
+                  <div>Upgrade to Premium</div>
+                  <div style={{fontSize:11,color:"#64748b",fontWeight:400}}>30 analyses, all tools, no ads</div>
+                </div>
+                <span style={{marginLeft:"auto",color:"#f59e0b"}}>→</span>
+              </button>}
+
+              <button onClick={()=>setProfileTab("questions")} style={{background:"rgba(15,23,42,.6)",border:"1px solid #1e293b",borderRadius:12,padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,color:"#e2e8f0",fontWeight:600,fontSize:14,fontFamily:"Inter,sans-serif",transition:"all .2s"}}>
+                <span style={{fontSize:20}}>❓</span>
+                <div style={{textAlign:"left"}}>
+                  <div>Any Questions?</div>
+                  <div style={{fontSize:11,color:"#64748b",fontWeight:400}}>Contact us directly</div>
+                </div>
+                <span style={{marginLeft:"auto",color:"#475569"}}>→</span>
+              </button>
+
+              <button onClick={()=>setProfileTab("terms")} style={{background:"rgba(15,23,42,.6)",border:"1px solid #1e293b",borderRadius:12,padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,color:"#e2e8f0",fontWeight:600,fontSize:14,fontFamily:"Inter,sans-serif",transition:"all .2s"}}>
+                <span style={{fontSize:20}}>📄</span>
+                <div style={{textAlign:"left"}}>
+                  <div>Terms & Conditions</div>
+                  <div style={{fontSize:11,color:"#64748b",fontWeight:400}}>Privacy policy & usage terms</div>
+                </div>
+                <span style={{marginLeft:"auto",color:"#475569"}}>→</span>
+              </button>
+
+              <button onClick={()=>{setShowProfile(false);handleLogout();}} style={{background:"rgba(239,68,68,.06)",border:"1px solid rgba(239,68,68,.2)",borderRadius:12,padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,color:"#ef4444",fontWeight:600,fontSize:14,fontFamily:"Inter,sans-serif",transition:"all .2s"}}>
+                <span style={{fontSize:20}}>🚪</span>
+                <div style={{textAlign:"left"}}>
+                  <div>Log Out</div>
+                  <div style={{fontSize:11,color:"#64748b",fontWeight:400}}>Sign out of your account</div>
+                </div>
+              </button>
+            </div>
+
+            <button className="mcan" onClick={()=>setShowProfile(false)}>Close</button>
+          </>
+        )}
+
+        {/* QUESTIONS TAB */}
+        {profileTab==="questions"&&(
+          <>
+            <button onClick={()=>{setProfileTab("main");setQSent(false);}} style={{background:"none",border:"none",color:"#6366f1",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",marginBottom:16,display:"flex",alignItems:"center",gap:5}}>← Back</button>
+            <h3 style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:4}}>❓ Any Questions?</h3>
+            <p style={{color:"#64748b",fontSize:12,marginBottom:18,lineHeight:1.6}}>Kuch bhi poochho — hum directly reply karenge aapke email pe!</p>
+
+            {qSent?(
+              <div style={{textAlign:"center",padding:"30px 20px"}}>
+                <div style={{fontSize:56,marginBottom:12}}>✅</div>
+                <div style={{fontWeight:800,fontSize:16,color:"#10b981",marginBottom:8}}>Question Sent!</div>
+                <div style={{color:"#64748b",fontSize:13,marginBottom:20}}>Hum jald hi reply karenge {user?.email} pe</div>
+                <button onClick={()=>setQSent(false)} style={{background:"rgba(99,102,241,.15)",border:"1px solid rgba(99,102,241,.3)",borderRadius:10,padding:"10px 24px",color:"#a5b4fc",cursor:"pointer",fontWeight:600,fontSize:13,fontFamily:"Inter,sans-serif"}}>Aur Poochho</button>
+              </div>
+            ):(
+              <>
+                <textarea value={question} onChange={e=>setQuestion(e.target.value)}
+                  placeholder="Apna question yahan likho... jaise ki payment issue, koi feature request, koi problem, kuch bhi!"
+                  style={{width:"100%",background:"#0f172a",border:"1px solid #1e293b",borderRadius:12,padding:"13px 14px",color:"#f8fafc",fontSize:13,fontFamily:"Inter,sans-serif",outline:"none",resize:"vertical",minHeight:120,lineHeight:1.7,marginBottom:12}}
+                />
+                <button onClick={sendQuestion} disabled={qLoading||!question.trim()} style={{width:"100%",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:12,padding:"13px 0",color:"#fff",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"Inter,sans-serif",opacity:(!question.trim()||qLoading)?.6:1}}>
+                  {qLoading?"⏳ Sending...":"📨 Send Question"}
+                </button>
+                <p style={{color:"#475569",fontSize:11,textAlign:"center",marginTop:10}}>Reply aayegi: {user?.email}</p>
+              </>
+            )}
+          </>
+        )}
+
+        {/* TERMS TAB */}
+        {profileTab==="terms"&&(
+          <>
+            <button onClick={()=>setProfileTab("main")} style={{background:"none",border:"none",color:"#6366f1",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif",marginBottom:16,display:"flex",alignItems:"center",gap:5}}>← Back</button>
+            <h3 style={{fontWeight:800,fontSize:18,color:"#f8fafc",marginBottom:16}}>📄 Terms & Conditions</h3>
+            <div style={{background:"rgba(15,23,42,.6)",border:"1px solid #1e293b",borderRadius:12,padding:"16px",maxHeight:400,overflowY:"auto"}}>
+              {[
+                {title:"1. Service Use",text:"YesYouPro AI-powered product analysis service hai jo Indian ecommerce sellers ke liye banaya gaya hai. Aap is service ka use legal business activities ke liye kar sakte hain."},
+                {title:"2. Free Plan",text:"Free users ko 2 analyses per day milte hain. 24 ghante baad automatically reset hota hai. Free plan mein ads show hongi."},
+                {title:"3. Premium Plan",text:"Premium plan ₹249 mein 7 days ke liye valid hai jisme 30 analyses milte hain. Plan expire hone ke baad dobara purchase karna hoga. Refund policy: payment ke 24 ghante ke andar contact karo."},
+                {title:"4. Data Privacy",text:"Hum aapka email aur usage data store karte hain service improve karne ke liye. Aapka data kisi third party ko nahi becha jaata. Hum Google Firebase authentication use karte hain."},
+                {title:"5. AI Results",text:"YesYouPro ke AI results informational hain. Hum guarantee nahi dete ki ye results aapke business mein profit guarantee karenge. Business decisions apni research ke saath lein."},
+                {title:"6. Prohibited Use",text:"Spam, illegal activities, ya service abuse ke liye use karna mana hai. Violation pe account suspend kiya ja sakta hai."},
+                {title:"7. Contact Us",text:"Koi bhi problem ya question ke liye 'Any Questions?' section use karein. Hum 24-48 ghante mein reply karte hain."},
+              ].map((t,i)=>(
+                <div key={i} style={{marginBottom:14,paddingBottom:14,borderBottom:i<6?"1px solid rgba(255,255,255,.05)":"none"}}>
+                  <div style={{fontWeight:700,fontSize:12,color:"#a5b4fc",marginBottom:5}}>{t.title}</div>
+                  <div style={{color:"#94a3b8",fontSize:12,lineHeight:1.7}}>{t.text}</div>
+                </div>
+              ))}
+            </div>
+            <p style={{color:"#475569",fontSize:11,textAlign:"center",marginTop:12}}>Last updated: April 2025</p>
+          </>
+        )}
+
+      </div>
+    </div>}
+
+    {/* PROFILE MODAL */}
+    {showProfile&&<div className="prof-ov" onClick={()=>setShowProfile(false)}>
+      <div className="prof-modal" onClick={e=>e.stopPropagation()}>
+
+        {profileTab==="main"&&<>
+          <div className="prof-header">
+            <div className="prof-user">
+              <div className="prof-avt" style={{background:user?"linear-gradient(135deg,#6366f1,#8b5cf6)":"rgba(30,41,59,.8)"}}>
+                {user?.photo?<img src={user.photo} alt=""/>:user?user.name?.[0]?.toUpperCase()||"U":"👤"}
+              </div>
+              <div>
+                <div className="prof-name">{user?user.name:"Guest User"}</div>
+                <div className="prof-email">{user?user.email:"Not logged in"}</div>
+                <div className="prof-plan" style={{background:!user?"rgba(100,116,139,.1)":curPlan==="premium"?"rgba(245,158,11,.15)":"rgba(99,102,241,.1)",color:!user?"#64748b":curPlan==="premium"?"#f59e0b":"#a5b4fc",border:!user?"1px solid rgba(100,116,139,.2)":curPlan==="premium"?"1px solid rgba(245,158,11,.3)":"1px solid rgba(99,102,241,.2)"}}>
+                  {!user?"👤 Guest":curPlan==="premium"?"💎 Premium Plan":"🆓 Free Plan"}
+                </div>
+              </div>
+            </div>
+            <button className="prof-close" onClick={()=>setShowProfile(false)}>✕</button>
+          </div>
+
+          {curPlan==="premium"&&usage&&(
+            <div style={{background:"rgba(245,158,11,.06)",border:"1px solid rgba(245,158,11,.2)",borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:12,color:"#f59e0b",fontWeight:600}}>💎 Premium Active</div>
+              <div style={{fontSize:12,color:"#94a3b8"}}>{usage.remaining} analyses left</div>
+            </div>
+          )}
+
+          <div className="prof-menu">
+            {!user&&(
+              <>
+                <button className="pmenu-btn" style={{borderColor:"rgba(99,102,241,.3)",color:"#a5b4fc"}} onClick={()=>{setShowProfile(false);setScreen("auth");setAuthMode("login");}}>
+                  <span className="pmenu-icon">🔑</span>
+                  <span>Login Karo</span>
+                  <span className="pmenu-arr">›</span>
+                </button>
+                <button className="pmenu-btn" style={{borderColor:"rgba(16,185,129,.3)",color:"#10b981"}} onClick={()=>{setShowProfile(false);setScreen("auth");setAuthMode("signup");}}>
+                  <span className="pmenu-icon">✨</span>
+                  <span>Sign Up — Free</span>
+                  <span className="pmenu-arr">›</span>
+                </button>
+              </>
+            )}
+            <button className="pmenu-btn" onClick={()=>setProfileTab("terms")}>
+              <span className="pmenu-icon">📋</span>
+              <span>Terms & Conditions</span>
+              <span className="pmenu-arr">›</span>
+            </button>
+            <button className="pmenu-btn" onClick={()=>setProfileTab("question")}>
+              <span className="pmenu-icon">❓</span>
+              <span>Any Questions?</span>
+              <span className="pmenu-arr">›</span>
+            </button>
+            {(user&&curPlan==="free")&&(
+              <button className="pmenu-btn" onClick={()=>{setShowProfile(false);setShowPrem(true);}}>
+                <span className="pmenu-icon">💎</span>
+                <span>Upgrade to Premium — ₹249</span>
+                <span className="pmenu-arr">›</span>
+              </button>
+            )}
+            {user&&<button className="pmenu-btn logout" onClick={()=>{setShowProfile(false);handleLogout();}}>
+              <span className="pmenu-icon">🚪</span>
+              <span>Logout</span>
+            </button>}
+          </div>
+          <div style={{textAlign:"center",fontSize:11,color:"#475569",lineHeight:2}}>
+            <a href="/privacy" style={{color:"#6366f1",textDecoration:"none",marginRight:12}}>Privacy Policy</a>
+            <a href="https://instagram.com/yesyoupro" target="_blank" rel="noreferrer" style={{color:"#e1306c",textDecoration:"none"}}>📸 @yesyoupro</a>
+            <div style={{color:"#334155",marginTop:4}}>YesYouPro v1.0</div>
+          </div>
+        </>}
+
+        {profileTab==="terms"&&<>
+          <div className="prof-header">
+            <button className="prof-close" style={{background:"none",fontSize:22}} onClick={()=>setProfileTab("main")}>←</button>
+            <div style={{fontWeight:800,fontSize:16,color:"#f8fafc"}}>Terms & Conditions</div>
+            <div style={{width:32}}/>
+          </div>
+          <div className="terms-box">
+            <div className="terms-h">1. Acceptance of Terms</div>
+            <p className="terms-p">By using YesYouPro, you agree to these terms. If you do not agree, please do not use our service.</p>
+
+            <div className="terms-h">2. Free Plan</div>
+            <p className="terms-p">Free users get 2 analyses per day. After the daily limit is reached, a 24-hour timer starts. All tools are available during active analyses. No refund for unused free analyses.</p>
+
+            <div className="terms-h">3. Premium Plan</div>
+            <p className="terms-p">Premium plan costs ₹249 for 7 days with 30 analyses. After 7 days OR 30 analyses (whichever comes first), the plan expires. No automatic renewal. User must manually repurchase.</p>
+
+            <div className="terms-h">4. Refund Policy</div>
+            <p className="terms-p">No refunds once Premium is activated. If you face technical issues, contact us at support@yesyoupro.com within 24 hours of purchase.</p>
+
+            <div className="terms-h">5. AI Data Accuracy</div>
+            <p className="terms-p">YesYouPro uses AI to generate analysis. Results are suggestions only — not guaranteed business advice. Always do your own research before making business decisions.</p>
+
+            <div className="terms-h">6. Account Responsibility</div>
+            <p className="terms-p">Keep your login credentials safe. You are responsible for all activity under your account. Do not share your account with others.</p>
+
+            <div className="terms-h">7. Prohibited Use</div>
+            <p className="terms-p">Do not use YesYouPro for illegal activities, spamming, or reselling our AI results as your own service without permission.</p>
+
+            <div className="terms-h">8. Data Privacy</div>
+            <p className="terms-p">We store your email and usage data securely. We do not sell your personal data to third parties. Payment data is processed securely by Razorpay.</p>
+
+            <div className="terms-h">9. Changes to Service</div>
+            <p className="terms-p">YesYouPro reserves the right to modify features, pricing, or these terms at any time. Continued use means acceptance of changes.</p>
+
+            <div className="terms-h">10. Contact</div>
+            <p className="terms-p">For any queries: support@yesyoupro.com</p>
+          </div>
+          <button className="pmenu-btn" onClick={()=>setProfileTab("main")} style={{justifyContent:"center"}}>← Back to Profile</button>
+        </>}
+
+        {profileTab==="question"&&<>
+          <div className="prof-header">
+            <button className="prof-close" style={{background:"none",fontSize:22}} onClick={()=>setProfileTab("main")}>←</button>
+            <div style={{fontWeight:800,fontSize:16,color:"#f8fafc"}}>Any Questions?</div>
+            <div style={{width:32}}/>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,color:"#64748b",marginBottom:12,lineHeight:1.6}}>
+              Koi bhi problem ya question hai? Hume likho — hum jaldi reply karenge! 📩
+            </div>
+            {qSent?(
+              <div style={{background:"rgba(16,185,129,.1)",border:"1px solid rgba(16,185,129,.3)",borderRadius:12,padding:20,textAlign:"center"}}>
+                <div style={{fontSize:36,marginBottom:8}}>✅</div>
+                <div style={{fontWeight:700,color:"#10b981",fontSize:15,marginBottom:4}}>Message Sent!</div>
+                <div style={{color:"#64748b",fontSize:12}}>Hum 24 ghante mein reply karenge.</div>
+              </div>
+            ):(
+              <>
+                <div style={{marginBottom:8}}>
+                  <div className="q-box">
+                    <textarea
+                      className="q-inp"
+                      placeholder="Apna question ya problem yahan likho... jaise: Premium kab active hoga? Analysis kaam nahi kar raha. Refund chahiye. Koi bhi sawal..."
+                      value={question}
+                      onChange={e=>setQuestion(e.target.value)}
+                      rows={4}
+                    />
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:"#475569",marginBottom:12}}>
+                  📧 From: {user?.email} · Plan: {curPlan}
+                </div>
+                <button
+                  onClick={sendQuestion}
+                  disabled={qSending||!question.trim()}
+                  style={{width:"100%",background:question.trim()?"linear-gradient(135deg,#6366f1,#8b5cf6)":"rgba(30,41,59,.5)",border:"none",borderRadius:12,padding:"13px 0",color:question.trim()?"#fff":"#475569",fontWeight:800,fontSize:14,cursor:question.trim()?"pointer":"not-allowed",fontFamily:"Inter,sans-serif",transition:"all .2s"}}>
+                  {qSending?"📤 Sending...":"📤 Send Message"}
+                </button>
+              </>
+            )}
+          </div>
+          <div style={{textAlign:"center",fontSize:11,color:"#334155",marginTop:8}}>
+            ya email karo: support@yesyoupro.com
+          </div>
+        </>}
+
+      </div>
+    </div>}
+
     {screen==="auth"&&<div className="neu">
       <div className="nc">
         <div className="navt">
@@ -780,6 +1218,9 @@ export default function App(){
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
           </svg>
         </div>
+        <button onClick={()=>setScreen("home")} style={{background:"none",border:"none",cursor:"pointer",color:"#6366f1",fontSize:13,fontWeight:600,fontFamily:"Inter,sans-serif",marginBottom:8,display:"flex",alignItems:"center",gap:4}}>
+          ← Back to Home
+        </button>
         <h1 className="ntitle">{authMode==="login"?"Welcome back":"Create account"}</h1>
         <p className="nsub">{authMode==="login"?"Sign in to continue":"Join YesYouPro for free"}</p>
 
@@ -845,18 +1286,23 @@ export default function App(){
       </div>
     </div>}
 
-    {screen==="dashboard"&&<div className="dash">
+    {screen==="home"&&<div className="dash">
       <nav className="nav">
-        <div className="logo">🧠 YesYouPro</div>
-        {usage&&<div className="upill">
+        <div className="logo" style={{cursor:"pointer"}} onClick={()=>setScreen("home")}>🧠 YesYouPro</div>
+        {!user&&<div className="upill">
+          <span style={{color:"#94a3b8",fontWeight:700}}>👤 Guest</span>
+          <span style={{color:"#334155"}}>|</span>
+          <span style={{color:"#10b981",fontWeight:700}}>{Math.max(0,FREE_LIMIT-parseInt(S.get("yyp_guest_count")||"0"))}/{FREE_LIMIT} free</span>
+        </div>}
+        {user&&usage&&<div className="upill">
           <span style={{color:curPlan==="premium"?"#f59e0b":"#94a3b8",fontWeight:700}}>{curPlan==="premium"?"💎 Premium":"🆓 Free"}</span>
           <span style={{color:"#334155"}}>|</span>
           <span style={{color:usage.remaining>0?"#10b981":"#ef4444",fontWeight:700}}>{curPlan==="premium"?usage.remaining+" left":usage.remaining+"/"+FREE_LIMIT+" today"}</span>
         </div>}
         <div className="navr">
           {curPlan==="free"&&<button className="upbtn" onClick={()=>setShowPrem(true)}>💎 ₹249</button>}
-          <div className="avt">{user?.photo?<img src={user.photo} alt=""/>:user?.name?.[0]?.toUpperCase()||"U"}</div>
-          <button className="xbtn" onClick={handleLogout}>Exit</button>
+          <div className="avt" onClick={()=>setShowProfile(true)} style={{cursor:"pointer",boxShadow:"0 0 0 2px rgba(99,102,241,.5)"}} title="Profile">{user?.photo?<img src={user.photo} alt=""/>:user?.name?.[0]?.toUpperCase()||"U"}</div>
+          <button className="xbtn" onClick={()=>setShowProfile(true)} style={{borderColor:"rgba(99,102,241,.3)",color:"#6366f1"}}>👤 Profile</button>
         </div>
       </nav>
 
@@ -883,7 +1329,16 @@ export default function App(){
           </div>
         </div>}
 
-        {curPlan==="free"&&!timer&&usage&&(
+        {!user&&(
+          <div className="bnr-g" style={{background:"rgba(99,102,241,.06)",borderColor:"rgba(99,102,241,.2)"}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:12,color:"#a5b4fc"}}>👤 Guest Mode — {Math.max(0,FREE_LIMIT-parseInt(S.get("yyp_guest_count")||"0"))}/{FREE_LIMIT} Free Analyses</div>
+              <div style={{fontSize:11,color:"#475569"}}>Login karo aur 2 analyses/day pao. Ya Premium buy karo!</div>
+            </div>
+            <button onClick={()=>{setScreen("auth");setAuthMode("signup");}} style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",border:"none",borderRadius:9,padding:"7px 12px",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"Inter,sans-serif"}}>🔑 Login</button>
+          </div>
+        )}
+        {user&&curPlan==="free"&&!timer&&usage&&(
           usage.remaining>0?(
             <div className="bnr-g">
               <div>
@@ -894,7 +1349,7 @@ export default function App(){
           ):(
             <div className="bnr-r">
               <div>
-                <div style={{fontWeight:700,fontSize:12,color:"#ef4444"}}>🔒 Daily Limit Reached — All Tools Locked</div>
+                <div style={{fontWeight:700,fontSize:12,color:"#ef4444"}}>🔒 Daily Limit Reached</div>
                 <div style={{fontSize:11,color:"#64748b"}}>Upgrade for 30 analyses, no lockout & copy feature.</div>
               </div>
               <button onClick={()=>setShowPrem(true)} style={{background:"linear-gradient(135deg,#f59e0b,#ef4444)",border:"none",borderRadius:9,padding:"7px 12px",color:"#fff",fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"Inter,sans-serif"}}>💎 ₹249</button>
@@ -1458,7 +1913,16 @@ export default function App(){
         </div>}
 
       </div>
-      <footer>🧠 YesYouPro · AI Product Analyzer · © 2025</footer>
+      <footer>
+        <div style={{marginBottom:10,display:"flex",alignItems:"center",justifyContent:"center",gap:16,flexWrap:"wrap"}}>
+          <a href="/privacy" style={{color:"#475569",fontSize:12,textDecoration:"none"}}>Privacy Policy</a>
+          <span style={{color:"#1e293b"}}>·</span>
+          <a href="https://instagram.com/yesyoupro" target="_blank" rel="noreferrer" style={{color:"#475569",fontSize:12,textDecoration:"none"}}>📸 Instagram</a>
+          <span style={{color:"#1e293b"}}>·</span>
+          <span style={{color:"#475569",fontSize:12}}>support@yesyoupro.com</span>
+        </div>
+        <div style={{color:"#334155",fontSize:11}}>🧠 YesYouPro · AI Product Analyzer · © 2025</div>
+      </footer>
     </div>}
   </>);
 }
